@@ -110,9 +110,28 @@ async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, max
                 // Download logic
                 const imagesEls = await page.locator('img').elementHandles();
                 let generated = [];
-                for (const img of imagesEls) {
-                    const box = await img.boundingBox();
-                    if (box && box.width > 120 && box.height > 120) generated.push(img);
+
+                // Pega apenas as ultimas 20 imagens para processar (evita loop enorme)
+                const recentEls = imagesEls.slice(-20);
+
+                // Desfoca o input para que teclas de atalho possam rolar a tela, se necessario
+                await page.keyboard.press('Escape');
+
+                for (const img of recentEls) {
+                    // O Meta AI na web pode usar "Lazy Loading" e esconder imagens que estao fora da tela.
+                    // Isso força a rolagem ate as imagens mais recentes do final do chat.
+                    await img.scrollIntoViewIfNeeded().catch(() => { });
+
+                    // Pequeno tempo para o navegador renderizar a caixa da imagem se estava invisível
+                    await page.waitForTimeout(200);
+
+                    const box = await img.boundingBox().catch(() => null);
+                    const isLargeNatural = await img.evaluate(n => n.naturalWidth > 120 || n.width > 120).catch(() => false);
+
+                    // Verifica se tem tamanho de imagem gerada
+                    if ((box && box.width > 120 && box.height > 120) || isLargeNatural) {
+                        generated.push(img);
+                    }
                 }
 
                 const last4 = generated.slice(-4);
