@@ -168,7 +168,8 @@ app.get('/api/status', (req, res) => {
         current: currentStatus.current,
         total: currentStatus.total,
         logs: currentStatus.logs,
-        finished: currentStatus.finished
+        finished: currentStatus.finished,
+        waitingForApproval: currentStatus.waitingForApproval
     });
     // Limpa logs ja enviados para nao duplicar na interface
     currentStatus.logs = [];
