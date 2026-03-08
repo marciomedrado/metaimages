@@ -340,12 +340,13 @@
                 <p id="progress-text" style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">0 de 0 prompts
                     processados</p>
 
-                <div style="margin-top: 2rem; display: none;" id="authContainer">
-                    <button id="authBtn" class="btn" style="background: #10b981; color: white;">
-                        ✅ AUTORIZAR INÍCIO
+                <div style="margin-top: 1rem; display: none;" id="approvalContainer">
+                    <button id="approveBtn" class="btn"
+                        style="background: #10b981; color: white; border: 2px solid #059669; box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);">
+                        ✅ ESTOU PRONTO (Continuar)
                     </button>
                     <p style="font-size: 0.7rem; color: #10b981; margin-top: 0.5rem; text-align: center;">
-                        Confirme se a página carregou corretamente no Chrome.
+                        Clique aqui após fazer login no Meta AI
                     </p>
                 </div>
 
@@ -380,12 +381,9 @@
         const progressBar = document.getElementById('progress-bar');
         const progressText = document.getElementById('progress-text');
         const imagesGrid = document.getElementById('imagesGrid');
-        const authContainer = document.getElementById('authContainer');
-        const authBtn = document.getElementById('authBtn');
 
         let isRunning = false;
 
-        // ... (resto dos eventos de drag drop)
         // Drag & Drop
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -410,7 +408,9 @@
             }
         });
 
+        // Clique para selecionar (input oculto vindo do server talvez ou manual)
         dropZone.addEventListener('click', () => {
+            // Por simplicidade, incentivamos o drag and drop ou colar
             addLog("Arraste um arquivo .txt para facilitar!");
         });
 
@@ -438,16 +438,6 @@
                 });
             } catch (err) { }
         }
-
-        authBtn.onclick = async () => {
-            try {
-                await fetch('/api/continue', { method: 'POST' });
-                authContainer.style.display = 'none';
-                addLog("Autorizado! Iniciando agora...");
-            } catch (err) {
-                addLog("Erro ao autorizar: " + err.message, true);
-            }
-        };
 
         startBtn.onclick = async () => {
             if (isRunning) return;
@@ -480,6 +470,9 @@
                 }
 
                 addLog("O navegador abrira em instantes. Faca o login caso necessario!");
+
+                // Poll for progress? In a real app we'd use WebSockets or EventSource
+                // Let's use simple polling for logs
                 checkLogs();
 
             } catch (err) {
@@ -499,28 +492,20 @@
                 const data = await res.json();
 
                 if (data.logs && data.logs.length > 0) {
-                    // Evita duplicatas simples limpando ou apenas adicionando novos
-                    // Para simplificar, mostramos apenas os logs que vierem (o server manda tudo)
-                    logArea.innerHTML = '';
                     data.logs.forEach(l => {
-                        const div = document.createElement('div');
-                        div.className = 'log-entry';
-                        div.innerHTML = l;
-                        logArea.appendChild(div);
+                        // Evita duplicatas simples se o backend mandar o histórico todo
+                        addLog(l);
                     });
-                    logArea.scrollTop = logArea.scrollHeight;
                 }
 
-                if (data.waitingForConfirmation) {
-                    authContainer.style.display = 'block';
-                    statusBadge.textContent = 'Aguardando Autorização';
-                    statusBadge.style.background = 'rgba(245, 158, 11, 0.2)';
-                    statusBadge.style.color = '#f59e0b';
-                } else if (isRunning) {
-                    statusBadge.textContent = 'Executando';
-                    statusBadge.className = 'status-badge status-running';
-                    statusBadge.style.background = ''; // reset
-                    statusBadge.style.color = '';
+                // Lida com a autorização do usuário
+                const approvalContainer = document.getElementById('approvalContainer');
+                if (data.waitingForApproval) {
+                    approvalContainer.style.display = 'block';
+                    statusBadge.textContent = 'Aguardando Você';
+                } else {
+                    approvalContainer.style.display = 'none';
+                    if (isRunning) statusBadge.textContent = 'Executando';
                 }
 
                 if (data.total > 0) {
@@ -545,6 +530,11 @@
                 setTimeout(checkLogs, 2000);
             }
         }
+
+        document.getElementById('approveBtn').onclick = async () => {
+            await fetch('/api/approve', { method: 'POST' });
+            addLog("Autorizacao enviada. O robo vai continuar em alguns instantes...");
+        };
 
         document.getElementById('refreshBtn').onclick = updateGallery;
         document.getElementById('openFolderBtn').onclick = () => fetch('/api/open-folder');

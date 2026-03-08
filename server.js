@@ -19,7 +19,7 @@ let currentStatus = {
     total: 0,
     logs: [],
     finished: false,
-    waitingForConfirmation: false
+    waitingForApproval: false
 };
 
 let browserContext = null;
@@ -36,6 +36,7 @@ async function runAutomation(prompts, mode) {
     currentStatus.current = 0;
     currentStatus.total = prompts.length;
     currentStatus.logs = [];
+    currentStatus.waitingForApproval = false;
 
     const userDataDir = mode === 'user'
         ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data')
@@ -54,21 +55,19 @@ async function runAutomation(prompts, mode) {
         browserContext = context;
         const page = await context.newPage();
 
-        addLog('Navegando ate o site do Meta AI (Media)...');
-        await page.goto('https://www.meta.ai/media', { waitUntil: 'domcontentloaded' });
+        addLog('Navegando ate o site do Meta AI...');
+        await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
 
-        currentStatus.waitingForConfirmation = true;
+        currentStatus.waitingForApproval = true;
         addLog('--- AGUARDANDO AUTORIZACAO ---');
-        addLog('Por favor, confira a pagina no navegador e clique em "AUTORIZAR" no dashboard para continuar.');
+        addLog('Por favor, verifique se voce esta logado no Meta AI.');
+        addLog('Clique em "ESTOU PRONTO" no seu Dashboard para comecar.');
 
-        // Espera ate que o usuário clique em "Continuar" no Dashboard
-        while (currentStatus.waitingForConfirmation) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            // Se o processo for cancelado ou algo acontecer, saia
-            if (!currentStatus.isRunning) return;
+        while (currentStatus.waitingForApproval) {
+            await new Promise(r => setTimeout(r, 1000));
         }
 
-        addLog('Autorizacao recebida! Iniciando geracao em massa...');
+        addLog('Autorizado! Iniciando processamento de prompts...');
 
         const outputDir = path.join(__dirname, 'output');
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
@@ -158,13 +157,9 @@ app.post('/api/start', (req, res) => {
     res.json({ message: 'Processo iniciado.' });
 });
 
-app.post('/api/continue', (req, res) => {
-    if (currentStatus.waitingForConfirmation) {
-        currentStatus.waitingForConfirmation = false;
-        res.json({ message: 'Autorizado.' });
-    } else {
-        res.status(400).json({ error: 'Nao estou aguardando autorizacao.' });
-    }
+app.post('/api/approve', (req, res) => {
+    currentStatus.waitingForApproval = false;
+    res.json({ success: true });
 });
 
 app.get('/api/status', (req, res) => {
@@ -173,9 +168,10 @@ app.get('/api/status', (req, res) => {
         current: currentStatus.current,
         total: currentStatus.total,
         logs: currentStatus.logs,
-        finished: currentStatus.finished,
-        waitingForConfirmation: currentStatus.waitingForConfirmation
+        finished: currentStatus.finished
     });
+    // Limpa logs ja enviados para nao duplicar na interface
+    currentStatus.logs = [];
 });
 
 app.get('/api/images', (req, res) => {
@@ -201,4 +197,3 @@ app.listen(port, () => {
     // Auto-open browser
     exec(`start http://localhost:${port}`);
 });
-
