@@ -31,7 +31,7 @@ function addLog(msg) {
     console.log(`[${time}] ${msg}`);
 }
 
-async function runAutomation(prompts, mode, customOutputPath) {
+async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, maxDelay = 30) {
     currentStatus.outputPath = customOutputPath || path.join(__dirname, 'output');
     currentStatus.isRunning = true;
     currentStatus.finished = false;
@@ -136,6 +136,13 @@ async function runAutomation(prompts, mode, customOutputPath) {
                 }
                 addLog(`Sucesso: ${last4.length} imagens salvas para este prompt.`);
 
+                // Intervalo aleatorio entre prompts (exceto no ultimo)
+                if (i < prompts.length - 1) {
+                    const sleepTime = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + parseInt(minDelay);
+                    addLog(`Aguardando ${sleepTime} segundos antes do proximo prompt...`);
+                    await page.waitForTimeout(sleepTime * 1000);
+                }
+
             } catch (err) {
                 addLog(`Erro no prompt ${i + 1}: ${err.message}`);
             }
@@ -155,8 +162,8 @@ app.post('/api/start', (req, res) => {
     if (currentStatus.isRunning && !currentStatus.finished) {
         return res.status(400).json({ error: 'Ja existe um processo rodando.' });
     }
-    const { prompts, mode, outputPath } = req.body;
-    runAutomation(prompts, mode, outputPath);
+    const { prompts, mode, outputPath, minDelay, maxDelay } = req.body;
+    runAutomation(prompts, mode, outputPath, minDelay, maxDelay);
     res.json({ message: 'Processo iniciado.' });
 });
 

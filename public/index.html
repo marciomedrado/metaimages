@@ -320,6 +320,17 @@
                     </p>
                 </div>
 
+                <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <label>Intervalo Mínimo (s)</label>
+                        <input type="number" id="minDelay" value="10" min="1">
+                    </div>
+                    <div>
+                        <label>Intervalo Máximo (s)</label>
+                        <input type="number" id="maxDelay" value="30" min="1">
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label>Pasta de Saída (Caminho completo)</label>
                     <input type="text" id="outputPath" placeholder="Padrao: pasta /output do projeto">
@@ -449,6 +460,8 @@
 
             const prompts = promptArea.value.split('\n').map(p => p.trim()).filter(p => p);
             const customOutput = document.getElementById('outputPath').value.trim();
+            const minDelay = document.getElementById('minDelay').value;
+            const maxDelay = document.getElementById('maxDelay').value;
 
             if (prompts.length === 0) {
                 alert("Insira pelo menos um prompt!");
@@ -468,7 +481,9 @@
                     body: JSON.stringify({
                         prompts,
                         mode: browserMode.value,
-                        outputPath: customOutput || null
+                        outputPath: customOutput || null,
+                        minDelay,
+                        maxDelay
                     })
                 });
 
