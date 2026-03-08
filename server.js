@@ -18,7 +18,8 @@ let currentStatus = {
     current: 0,
     total: 0,
     logs: [],
-    finished: false
+    finished: false,
+    waitingForConfirmation: false
 };
 
 let browserContext = null;
@@ -53,8 +54,21 @@ async function runAutomation(prompts, mode) {
         browserContext = context;
         const page = await context.newPage();
 
-        addLog('Navegando ate o site do Meta AI...');
-        await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
+        addLog('Navegando ate o site do Meta AI (Media)...');
+        await page.goto('https://www.meta.ai/media', { waitUntil: 'domcontentloaded' });
+
+        currentStatus.waitingForConfirmation = true;
+        addLog('--- AGUARDANDO AUTORIZACAO ---');
+        addLog('Por favor, confira a pagina no navegador e clique em "AUTORIZAR" no dashboard para continuar.');
+
+        // Espera ate que o usuário clique em "Continuar" no Dashboard
+        while (currentStatus.waitingForConfirmation) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Se o processo for cancelado ou algo acontecer, saia
+            if (!currentStatus.isRunning) return;
+        }
+
+        addLog('Autorizacao recebida! Iniciando geracao em massa...');
 
         const outputDir = path.join(__dirname, 'output');
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
@@ -144,16 +158,24 @@ app.post('/api/start', (req, res) => {
     res.json({ message: 'Processo iniciado.' });
 });
 
+app.post('/api/continue', (req, res) => {
+    if (currentStatus.waitingForConfirmation) {
+        currentStatus.waitingForConfirmation = false;
+        res.json({ message: 'Autorizado.' });
+    } else {
+        res.status(400).json({ error: 'Nao estou aguardando autorizacao.' });
+    }
+});
+
 app.get('/api/status', (req, res) => {
     res.json({
         isRunning: currentStatus.isRunning,
         current: currentStatus.current,
         total: currentStatus.total,
         logs: currentStatus.logs,
-        finished: currentStatus.finished
+        finished: currentStatus.finished,
+        waitingForConfirmation: currentStatus.waitingForConfirmation
     });
-    // Limpa logs ja enviados se quiser fazer stream, mas aqui mandamos o set
-    // currentStatus.logs = []; 
 });
 
 app.get('/api/images', (req, res) => {
@@ -179,3 +201,4 @@ app.listen(port, () => {
     // Auto-open browser
     exec(`start http://localhost:${port}`);
 });
+
