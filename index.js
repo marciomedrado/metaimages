@@ -87,7 +87,9 @@ const readline = require('readline-sync');
         fs.mkdirSync(outputDir);
     }
 
-    for (let i = 0; i < prompts.length; i++) {
+    let previousPromptImageSrcs = []; // Array tracking the src of images from the previous prompt
+
+    const processPromptIndex = async (i) => {
         const prompt = prompts[i];
         console.log(`\n[${i + 1}/${prompts.length}] Processing prompt: "${prompt}"`);
 
@@ -116,7 +118,7 @@ const readline = require('readline-sync');
                 console.log("-> Se voce ja estava logado, o site do Meta AI pode ter bloqueado ou modificado a pagina.");
                 console.log("\nO script esta pausado. Se quiser prosseguir manualmente:");
                 readline.question('Digite no site "imagine ' + prompt + '" e aperte Enter la. Depois APERTE ENTER AQUI no terminal para ir p/ o proximo...');
-                continue;
+                return;
             }
 
             // Fill the prompt. We prepend "imagine" to ensure it generates an image if needed
@@ -125,26 +127,97 @@ const readline = require('readline-sync');
             await page.waitForTimeout(500);
             await page.keyboard.press('Enter');
 
-            console.log('Waiting for image generation (20 seconds)...');
-            // Wait for generation
-            await page.waitForTimeout(20000);
+            console.log('Waiting for image generation (up to 90 seconds)...');
 
-            console.log('Procurando pelas imagens geradas...');
+            let last4Images = [];
+            let currentSrcs = [];
+            let waitTime = 0;
+            const maxWaitTime = 90000;
+            const interval = 2000;
+            let generatingSince = null;
 
-            // Pega todos os elementos de imagem na tela
-            const images = await page.locator('img').elementHandles();
-            let generatedImages = [];
+            while (waitTime < maxWaitTime) {
+                await page.waitForTimeout(interval);
+                waitTime += interval;
 
-            // Filtra para pegar apenas as imagens maiores (ignorando icones, avatares, etc.)
-            for (const img of images) {
-                const box = await img.boundingBox();
-                if (box && box.width > 100 && box.height > 100) {
-                    generatedImages.push(img);
+                const images = await page.locator('img').elementHandles();
+                let currentLargeImages = [];
+
+                for (const img of images) {
+                    const box = await img.boundingBox();
+                    if (box && box.width > 100 && box.height > 100) {
+                        currentLargeImages.push(img);
+                    }
+                }
+
+                if (currentLargeImages.length === 0) continue;
+
+                const currentLast4 = currentLargeImages.slice(-4);
+
+                let srcs = [];
+                for (const img of currentLast4) {
+                    const src = await img.getAttribute('src').catch(() => null);
+                    if (src) srcs.push(src);
+                }
+
+                let newImagesCount = 0;
+                for (const src of srcs) {
+                    if (!previousPromptImageSrcs.includes(src)) {
+                        newImagesCount++;
+                    }
+                }
+
+                if (newImagesCount === 4) {
+                    console.log('As 4 imagens foram geradas! Aguardando renderização final (5s)...');
+                    await page.waitForTimeout(5000);
+                    break;
+                } else if (newImagesCount > 0) {
+                    if (!generatingSince) {
+                        console.log('Geração iniciada (novas imagens detectadas)...');
+                        generatingSince = waitTime;
+                    }
+                    if (waitTime - generatingSince > 20000) {
+                        console.log('Tempo esgotado aguardando as 4 imagens. Usando as imagens disponíveis.');
+                        break;
+                    }
                 }
             }
 
-            // Seleciona as ultimas 4 imagens identificadas (assumindo que sao as geradas agora)
-            const last4Images = generatedImages.slice(-4);
+            if (newImagesCount === 0) {
+                console.log("\n[!] O prompt nao foi gerado ou demorou demais sem novas imagens.");
+                const action = readline.question('O que deseja fazer? [1] Tentar de novo [2] Pular este prompt [3] Forcei o prompt manualmente no site: ');
+
+                if (action === '1') {
+                    return await processPromptIndex(i);
+                } else if (action === '2') {
+                    console.log('Pulando prompt...');
+                    return;
+                } else if (action === '3') {
+                    console.log('Prosseguindo para a captura das imagens presentes...');
+                } else {
+                    return;
+                }
+            }
+
+            console.log('Procurando pelas imagens geradas...');
+
+            // Re-fetch para ter certeza de que pegou a versão final carregada
+            const finalImages = await page.locator('img').elementHandles();
+            let finalLargeImages = [];
+            for (const img of finalImages) {
+                const box = await img.boundingBox();
+                if (box && box.width > 100 && box.height > 100) {
+                    finalLargeImages.push(img);
+                }
+            }
+            last4Images = finalLargeImages.slice(-4);
+
+            currentSrcs = [];
+            for (const img of last4Images) {
+                const src = await img.getAttribute('src').catch(() => null);
+                if (src) currentSrcs.push(src);
+            }
+            previousPromptImageSrcs = currentSrcs;
 
             if (last4Images.length === 0) {
                 console.log('[!] Nenhuma imagem de tamanho adequado encontrada. Fazendo screenshot inteiro da pagina...');
@@ -159,6 +232,8 @@ const readline = require('readline-sync');
                 for (let j = 0; j < last4Images.length; j++) {
                     const letter = letters[j] || `${j}`;
                     const fileName = `${promptNumStr}${letter}.png`; // ex: 01a.png
+                    const fullFilePath = path.join(outputDir, fileName);
+                    if (fs.existsSync(fullFilePath)) fs.unlinkSync(fullFilePath);
 
                     try {
                         // Tenta extrair src e baixar diretamente para qualidade maxima
@@ -166,15 +241,15 @@ const readline = require('readline-sync');
                         if (src && src.startsWith('http')) {
                             const response = await page.request.get(src);
                             const buffer = await response.body();
-                            fs.writeFileSync(path.join(outputDir, fileName), buffer);
+                            fs.writeFileSync(fullFilePath, buffer);
                         } else {
                             // Se fallback (ex: imagem em base64 ou protegida), tira screenshot do proprio elemento
-                            await last4Images[j].screenshot({ path: path.join(outputDir, fileName) });
+                            await last4Images[j].screenshot({ path: fullFilePath });
                         }
                         console.log(`-> Imagem salva: ${fileName}`);
                     } catch (err) {
                         console.log(`-> (Fallback) Salvando element screenshot para ${fileName}`);
-                        await last4Images[j].screenshot({ path: path.join(outputDir, fileName) });
+                        await last4Images[j].screenshot({ path: fullFilePath });
                     }
                 }
             }
@@ -185,11 +260,27 @@ const readline = require('readline-sync');
         } catch (error) {
             console.error(`Error processing prompt "${prompt}":`, error.message);
         }
+    };
+
+    for (let i = 0; i < prompts.length; i++) {
+        await processPromptIndex(i);
     }
 
-    console.log('\n--- Finalizado! ---');
-    console.log('Todos os prompts foram processados.');
-    console.log('O navegador continuara ABERTO para voce conferir as imagens.');
+    while (true) {
+        console.log('\n--- Finalizado processamento padrao ---');
+        let answer = readline.question('Deseja REGERAR ou PROCESSAR DE NOVO algum prompt especifico? (Digite o numero, ex: 2, ou ENTER para sair): ');
+        if (!answer || !answer.trim()) break;
+
+        const pIndex = parseInt(answer.trim()) - 1;
+        if (!isNaN(pIndex) && pIndex >= 0 && pIndex < prompts.length) {
+            console.log(`\nRe-executando o prompt numero ${pIndex + 1}...`);
+            await processPromptIndex(pIndex);
+        } else {
+            console.log("\n[!] Indice invalido.");
+        }
+    }
+
+    console.log('O navegador continuara ABERTO para voce conferir as imagens se quiser.');
     console.log('Pressione Ctrl+C neste terminal para encerrar o programa finalizando o navegador.');
 
     // Mantem o script rodando infinitamente ate o usuario cancelar
