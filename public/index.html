@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meta AI Bulk Image Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-glow: rgba(79, 70, 229, 0.4);
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+            --text: #f8fafc;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 0% 0%, rgba(79, 70, 229, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(236, 72, 153, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.05) 0%, transparent 50%);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        header {
+            margin-bottom: 2.5rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(to right, #818cf8, #c084fc, #fb7185);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+            color: #cbd5e1;
+        }
+
+        textarea,
+        select,
+        input[type="file"] {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            color: var(--text);
+            font-size: 0.9375rem;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px var(--primary-glow);
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255, 255, 255, 0.02);
+            color: #94a3b8;
+        }
+
+        .drop-zone:hover,
+        .drop-zone.active {
+            border-color: var(--primary);
+            background: rgba(79, 70, 229, 0.05);
+            color: var(--text);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 1rem;
+            border-radius: 12px;
+            border: none;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(79, 70, 229, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .log-area {
+            height: 300px;
+            overflow-y: auto;
+            background: #000;
+            border-radius: 16px;
+            padding: 1rem;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.8125rem;
+            color: #10b981;
+            scroll-behavior: smooth;
+        }
+
+        .log-entry {
+            margin-bottom: 0.25rem;
+        }
+
+        .log-time {
+            color: #64748b;
+            margin-right: 0.5rem;
+        }
+
+        .log-error {
+            color: #ef4444;
+        }
+
+        .progress-bar-container {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #4f46e5, #818cf8);
+            transition: width 0.3s;
+        }
+
+        .images-grid {
+            margin-top: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 1rem;
+        }
+
+        .img-card {
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            aspect-ratio: 1;
+            background: #000;
+            transition: all 0.2s;
+        }
+
+        .img-card:hover {
+            transform: scale(1.05);
+            z-index: 10;
+        }
+
+        .img-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .status-idle {
+            background: rgba(148, 163, 184, 0.2);
+            color: #94a3b8;
+        }
+
+        .status-running {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.6;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.6;
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Meta AI Studio</h1>
+            <p class="subtitle">Bulk Image Generation Experience</p>
+        </header>
+
+        <main class="dashboard">
+            <div class="card">
+                <h2><span>🎨</span> Prompts</h2>
+
+                <div class="form-group">
+                    <label>Modo Prompts</label>
+                    <div id="dropZone" class="drop-zone">
+                        Arraste seu arquivo .txt aqui ou clique para selecionar
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Manual (Um por linha)</label>
+                    <textarea id="promptArea" rows="8" placeholder="Ex: ferrari 1990 em roma..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Navegador</label>
+                    <select id="browserMode">
+                        <option value="internal">Robô Interno (Limpo)</option>
+                        <option value="user">Meu Google Chrome (Logado)</option>
+                    </select>
+                    <p style="font-size: 0.7rem; color: #64748b; margin-top: 0.5rem;">
+                        Se escolher seu Chrome, feche todas as janelas dele antes.
+                    </p>
+                </div>
+
+                <button id="startBtn" class="btn btn-primary">
+                    <span id="btnIcon">🚀</span> Iniciar Geração
+                </button>
+            </div>
+
+            <div class="card">
+                <h2><span>📊</span> Status & Logs</h2>
+
+                <div id="statusBadge" class="status-badge status-idle">Parado</div>
+
+                <div class="log-area" id="logArea">
+                    <div class="log-entry"><span class="log-time">System</span> Pronto para iniciar.</div>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div id="progress-bar"></div>
+                </div>
+                <p id="progress-text" style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">0 de 0 prompts
+                    processados</p>
+
+                <div style="margin-top: 2rem;">
+                    <button id="openFolderBtn" class="btn" style="background: rgba(255,255,255,0.05); color: #cbd5e1;">
+                        📂 Abrir Pasta /output
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <section class="images-container" style="margin-top: 3rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="font-size: 1.5rem; font-weight: 700;">Galeria de Resultados</h2>
+                <button id="refreshBtn"
+                    style="background: none; border: none; color: var(--primary); cursor: pointer; font-size: 0.875rem;">Atualizar
+                    Galeria</button>
+            </div>
+            <div class="images-grid" id="imagesGrid">
+                <!-- Imagens carregarão aqui -->
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const promptArea = document.getElementById('promptArea');
+        const startBtn = document.getElementById('startBtn');
+        const logArea = document.getElementById('logArea');
+        const browserMode = document.getElementById('browserMode');
+        const statusBadge = document.getElementById('statusBadge');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const imagesGrid = document.getElementById('imagesGrid');
+
+        let isRunning = false;
+
+        // Drag & Drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('active');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('active');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.txt')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    promptArea.value = e.target.result;
+                    addLog("Arquivo carregado com sucesso.");
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Clique para selecionar (input oculto vindo do server talvez ou manual)
+        dropZone.addEventListener('click', () => {
+            // Por simplicidade, incentivamos o drag and drop ou colar
+            addLog("Arraste um arquivo .txt para facilitar!");
+        });
+
+        function addLog(msg, isError = false) {
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            if (isError) div.classList.add('log-error');
+            div.innerHTML = `<span class="log-time">${time}</span> ${msg}`;
+            logArea.appendChild(div);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        async function updateGallery() {
+            try {
+                const res = await fetch('/api/images');
+                const data = await res.json();
+                imagesGrid.innerHTML = '';
+                data.images.forEach(img => {
+                    const div = document.createElement('div');
+                    div.className = 'img-card';
+                    div.innerHTML = `<img src="/output/${img}" alt="${img}" title="${img}">`;
+                    div.onclick = () => window.open(`/output/${img}`, '_blank');
+                    imagesGrid.appendChild(div);
+                });
+            } catch (err) { }
+        }
+
+        startBtn.onclick = async () => {
+            if (isRunning) return;
+
+            const prompts = promptArea.value.split('\n').map(p => p.trim()).filter(p => p);
+            if (prompts.length === 0) {
+                alert("Insira pelo menos um prompt!");
+                return;
+            }
+
+            isRunning = true;
+            startBtn.disabled = true;
+            statusBadge.textContent = 'Executando';
+            statusBadge.className = 'status-badge status-running';
+            addLog(`Iniciando processamento de ${prompts.length} prompts...`);
+
+            try {
+                const response = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompts,
+                        mode: browserMode.value
+                    })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Erro ao iniciar');
+                }
+
+                addLog("O navegador abrira em instantes. Faca o login caso necessario!");
+
+                // Poll for progress? In a real app we'd use WebSockets or EventSource
+                // Let's use simple polling for logs
+                checkLogs();
+
+            } catch (err) {
+                addLog(`Erro: ${err.message}`, true);
+                isRunning = false;
+                startBtn.disabled = false;
+                statusBadge.textContent = 'Parado';
+                statusBadge.className = 'status-badge status-idle';
+            }
+        };
+
+        async function checkLogs() {
+            if (!isRunning) return;
+
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(l => addLog(l));
+                }
+
+                if (data.progress) {
+                    const percent = (data.current / data.total) * 100;
+                    progressBar.style.width = `${percent}%`;
+                    progressText.textContent = `${data.current} de ${data.total} prompts processados`;
+                }
+
+                if (data.finished) {
+                    isRunning = false;
+                    startBtn.disabled = false;
+                    statusBadge.textContent = 'Finalizado';
+                    statusBadge.className = 'status-badge status-idle';
+                    addLog("Processo concluido!");
+                    updateGallery();
+                    return;
+                }
+
+                updateGallery();
+                setTimeout(checkLogs, 2000);
+            } catch (err) {
+                setTimeout(checkLogs, 2000);
+            }
+        }
+
+        document.getElementById('refreshBtn').onclick = updateGallery;
+        document.getElementById('openFolderBtn').onclick = () => fetch('/api/open-folder');
+
+        setInterval(updateGallery, 10000);
+        updateGallery();
+    </script>
+</body>
+
+</html>

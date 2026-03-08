@@ -1,0 +1,181 @@
+const express = require('express');
+const cors = require('cors');
+const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
+const { exec } = require('child_process');
+
+const app = express();
+const port = 3500;
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+app.use('/output', express.static(path.join(__dirname, 'output')));
+
+let currentStatus = {
+    isRunning: false,
+    current: 0,
+    total: 0,
+    logs: [],
+    finished: false
+};
+
+let browserContext = null;
+
+function addLog(msg) {
+    const time = new Date().toLocaleTimeString();
+    currentStatus.logs.push(`[${time}] ${msg}`);
+    console.log(`[${time}] ${msg}`);
+}
+
+async function runAutomation(prompts, mode) {
+    currentStatus.isRunning = true;
+    currentStatus.finished = false;
+    currentStatus.current = 0;
+    currentStatus.total = prompts.length;
+    currentStatus.logs = [];
+
+    const userDataDir = mode === 'user'
+        ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data')
+        : path.join(__dirname, 'browser_data');
+
+    const launchOptions = {
+        headless: false,
+        viewport: null,
+        channel: mode === 'user' ? 'chrome' : undefined
+    };
+
+    addLog('Iniciando o navegador para o processamento em lote...');
+
+    try {
+        const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
+        browserContext = context;
+        const page = await context.newPage();
+
+        addLog('Navegando ate o site do Meta AI...');
+        await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
+
+        const outputDir = path.join(__dirname, 'output');
+        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+
+        for (let i = 0; i < prompts.length; i++) {
+            const prompt = prompts[i];
+            currentStatus.current = i + 1;
+            addLog(`Prompt (${i + 1}/${prompts.length}): "${prompt.substring(0, 30)}${prompt.length > 30 ? '...' : ''}"`);
+
+            try {
+                // Aguarda elementos
+                await page.waitForTimeout(3000);
+
+                // Localizador robusto
+                let inputElement = page.getByRole('textbox').last();
+                let isVisible = await inputElement.isVisible().catch(() => false);
+
+                if (!isVisible) inputElement = page.locator('div[contenteditable="true"]').last();
+                isVisible = await inputElement.isVisible().catch(() => false);
+
+                if (!isVisible) inputElement = page.locator('textarea[placeholder*="Ask Meta AI"]').last();
+                isVisible = await inputElement.isVisible().catch(() => false);
+
+                if (!isVisible) {
+                    addLog(`[!] Campo de entrada não encontrado para o prompt ${i + 1}. Aguardando 10s para ver se voce digita no site...`);
+                    await page.waitForTimeout(10000);
+                    continue;
+                }
+
+                const generateCommand = `imagine ${prompt}`;
+                await inputElement.fill(generateCommand);
+                await page.waitForTimeout(500);
+                await page.keyboard.press('Enter');
+
+                addLog('Gerando as 4 imagens (aguardando 25 segundos)...');
+                await page.waitForTimeout(25000);
+
+                // Download logic
+                const imagesEls = await page.locator('img').elementHandles();
+                let generated = [];
+                for (const img of imagesEls) {
+                    const box = await img.boundingBox();
+                    if (box && box.width > 120 && box.height > 120) generated.push(img);
+                }
+
+                const last4 = generated.slice(-4);
+                const pad = (num) => num.toString().padStart(2, '0');
+                const letters = ['a', 'b', 'c', 'd'];
+
+                for (let j = 0; j < last4.length; j++) {
+                    const fileName = `${pad(i + 1)}${letters[j]}.png`;
+                    try {
+                        const src = await last4[j].getAttribute('src');
+                        if (src && src.startsWith('http')) {
+                            const response = await page.request.get(src);
+                            fs.writeFileSync(path.join(outputDir, fileName), await response.body());
+                        } else {
+                            await last4[j].screenshot({ path: path.join(outputDir, fileName) });
+                        }
+                    } catch (e) {
+                        try { await last4[j].screenshot({ path: path.join(outputDir, fileName) }); } catch (sq) { }
+                    }
+                }
+                addLog(`Sucesso: ${last4.length} imagens salvas para este prompt.`);
+
+            } catch (err) {
+                addLog(`Erro no prompt ${i + 1}: ${err.message}`);
+            }
+        }
+
+        addLog('Tudo pronto! O navegador ficara aberto para voce conferir.');
+        currentStatus.finished = true;
+
+    } catch (error) {
+        addLog(`Erro Critico: ${error.message}`);
+        currentStatus.isRunning = false;
+        currentStatus.finished = true;
+    }
+}
+
+app.post('/api/start', (req, res) => {
+    if (currentStatus.isRunning && !currentStatus.finished) {
+        return res.status(400).json({ error: 'Ja existe um processo rodando.' });
+    }
+    const { prompts, mode } = req.body;
+    runAutomation(prompts, mode);
+    res.json({ message: 'Processo iniciado.' });
+});
+
+app.get('/api/status', (req, res) => {
+    res.json({
+        isRunning: currentStatus.isRunning,
+        current: currentStatus.current,
+        total: currentStatus.total,
+        logs: currentStatus.logs,
+        finished: currentStatus.finished
+    });
+    // Limpa logs ja enviados se quiser fazer stream, mas aqui mandamos o set
+    // currentStatus.logs = []; 
+});
+
+app.get('/api/images', (req, res) => {
+    const dir = path.join(__dirname, 'output');
+    if (!fs.existsSync(dir)) return res.json({ images: [] });
+    const files = fs.readdirSync(dir).filter(f => f.match(/\.(png|jpg|jpeg|webp)$/i));
+    res.json({ images: files.reverse().slice(0, 50) }); // Mostra as 50 ultimas
+});
+
+app.get('/api/open-folder', (req, res) => {
+    const dir = path.join(__dirname, 'output');
+    exec(`explorer "${dir}"`);
+    res.json({ success: true });
+});
+
+app.listen(port, () => {
+    console.log(`\n==========================================`);
+    console.log(`   META AI STUDIO RUNNING ON PORT ${port}`);
+    console.log(`   Acesse: http://localhost:${port}`);
+    console.log(`==========================================\n`);
+    addLog(`Servidor iniciado na porta ${port}`);
+
+    // Auto-open browser
+    exec(`start http://localhost:${port}`);
+});
