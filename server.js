@@ -74,6 +74,16 @@ async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, max
         const outputDir = currentStatus.outputPath;
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
+        // Set global para rastrear URLs de imagens ja conhecidas/salvas
+        const knownSrcs = new Set();
+
+        // Coleta URLs iniciais que ja existem na pagina (avatares, logos, etc)
+        const initialSrcs = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('img')).map(img => img.src).filter(s => s);
+        });
+        initialSrcs.forEach(s => knownSrcs.add(s));
+        addLog(`[debug] ${knownSrcs.size} imagens pre-existentes registradas.`);
+
         for (let i = 0; i < prompts.length; i++) {
             const prompt = prompts[i];
             currentStatus.current = i + 1;
@@ -94,92 +104,91 @@ async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, max
                 isVisible = await inputElement.isVisible().catch(() => false);
 
                 if (!isVisible) {
-                    addLog(`[!] Campo de entrada não encontrado para o prompt ${i + 1}. Aguardando 10s para ver se voce digita no site...`);
+                    addLog(`[!] Campo de entrada não encontrado para o prompt ${i + 1}. Aguardando 10s...`);
                     await page.waitForTimeout(10000);
                     continue;
                 }
-
-                // ===== PASSO 1: Contar quantas imagens grandes ja existem ANTES de enviar =====
-                const countLargeImagesBefore = await page.evaluate(() => {
-                    return document.querySelectorAll('img').length;
-                });
-                addLog(`[debug] Imagens no DOM antes de enviar: ${countLargeImagesBefore}`);
 
                 const generateCommand = `imagine ${prompt}`;
                 await inputElement.fill(generateCommand);
                 await page.waitForTimeout(500);
                 await page.keyboard.press('Enter');
 
-                addLog('Gerando as 4 imagens (aguardando 25 segundos)...');
+                addLog('Gerando imagens (aguardando 25 segundos)...');
                 await page.waitForTimeout(25000);
 
-                // ===== PASSO 2: Rolar ate o final do chat para garantir que as novas imagens carreguem =====
+                // Rola ate o final para forcar carregamento de lazy images
                 await page.keyboard.press('Escape');
                 await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(3000);
 
-                // ===== PASSO 3: Pegar TODAS as imagens e extrair apenas as NOVAS =====
-                const allImgEls = await page.locator('img').elementHandles();
+                // ===== COLETA DE NOVAS IMAGENS POR URL (src) =====
+                // Pega todos os srcs atuais da pagina
+                const currentImgData = await page.evaluate(() => {
+                    return Array.from(document.querySelectorAll('img')).map(img => ({
+                        src: img.src,
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
+                        width: img.width,
+                        height: img.height
+                    }));
+                });
 
-                // As imagens novas sao as que apareceram DEPOIS do indice que tinhamos antes
-                const newImgEls = allImgEls.slice(countLargeImagesBefore);
-                addLog(`[debug] Imagens novas no DOM: ${newImgEls.length}`);
+                // Filtra: somente imagens grandes e com src que NAO conhecemos ainda
+                const newImages = currentImgData.filter(img => {
+                    const isLarge = (img.naturalWidth > 100 && img.naturalHeight > 100) ||
+                        (img.width > 100 && img.height > 100);
+                    const isNew = img.src && !knownSrcs.has(img.src);
+                    return isLarge && isNew;
+                });
 
-                // Filtra para pegar somente as grandes (geradas pela IA)
-                let newGenerated = [];
-                for (const img of newImgEls) {
-                    await img.scrollIntoViewIfNeeded().catch(() => { });
-                    await page.waitForTimeout(300);
+                addLog(`[debug] ${newImages.length} imagens NOVAS detectadas para este prompt.`);
 
-                    const isLarge = await img.evaluate(n => {
-                        return (n.naturalWidth > 100 && n.naturalHeight > 100) ||
-                            (n.width > 100 && n.height > 100);
-                    }).catch(() => false);
-
-                    if (isLarge) newGenerated.push(img);
-                }
-
-                // Se nao conseguiu achar imagens novas pelo metodo de contagem, 
-                // tenta pegar as ultimas 4 grandes como fallback
-                if (newGenerated.length === 0) {
-                    addLog('[!] Nenhuma imagem nova detectada pelo metodo de contagem. Usando fallback...');
-                    for (const img of allImgEls.slice(-8)) {
-                        await img.scrollIntoViewIfNeeded().catch(() => { });
-                        await page.waitForTimeout(200);
-                        const isLarge = await img.evaluate(n => {
-                            return (n.naturalWidth > 100 && n.naturalHeight > 100) ||
-                                (n.width > 100 && n.height > 100);
-                        }).catch(() => false);
-                        if (isLarge) newGenerated.push(img);
-                    }
-                    newGenerated = newGenerated.slice(-4);
-                }
-
-                const imagesToSave = newGenerated.slice(0, 4); // No maximo 4
+                const imagesToSave = newImages.slice(0, 4);
                 const pad = (num) => num.toString().padStart(2, '0');
                 const letters = ['a', 'b', 'c', 'd'];
 
                 for (let j = 0; j < imagesToSave.length; j++) {
                     const fileName = `${pad(i + 1)}${letters[j]}.png`;
                     const fullPath = path.join(outputDir, fileName);
+                    const imgSrc = imagesToSave[j].src;
+
                     try {
-                        const src = await imagesToSave[j].getAttribute('src');
-                        if (src && src.startsWith('http')) {
-                            const response = await page.request.get(src);
+                        if (imgSrc && imgSrc.startsWith('http')) {
+                            const response = await page.request.get(imgSrc);
                             fs.writeFileSync(fullPath, await response.body());
+                        } else if (imgSrc && imgSrc.startsWith('data:')) {
+                            // Imagem base64 embarcada
+                            const base64Data = imgSrc.replace(/^data:image\/\w+;base64,/, '');
+                            fs.writeFileSync(fullPath, Buffer.from(base64Data, 'base64'));
                         } else {
-                            await imagesToSave[j].screenshot({ path: fullPath });
+                            // Fallback: screenshot do elemento
+                            const imgEl = await page.locator(`img[src="${imgSrc}"]`).first();
+                            await imgEl.screenshot({ path: fullPath });
                         }
                         addLog(`-> Imagem salva: ${fileName}`);
                     } catch (e) {
+                        addLog(`[!] Erro ao baixar ${fileName}: ${e.message}`);
+                        // Tenta screenshot como ultimo recurso
                         try {
-                            await imagesToSave[j].screenshot({ path: fullPath });
-                            addLog(`-> Imagem salva (fallback): ${fileName}`);
+                            const imgEl = await page.locator(`img[src="${imgSrc}"]`).first();
+                            await imgEl.screenshot({ path: fullPath });
+                            addLog(`-> Imagem salva (screenshot): ${fileName}`);
                         } catch (sq) {
-                            addLog(`[!] Falha ao salvar ${fileName}`);
+                            addLog(`[!] Falha total ao salvar ${fileName}`);
                         }
                     }
+
+                    // Marca esta URL como ja conhecida para nao duplicar nos proximos prompts
+                    knownSrcs.add(imgSrc);
                 }
+
+                // Tambem marca todas as imagens grandes atuais como conhecidas
+                // (mesmo as que nao salvamos, para evitar confusao futura)
+                currentImgData.forEach(img => {
+                    if (img.src) knownSrcs.add(img.src);
+                });
+
                 addLog(`Sucesso: ${imagesToSave.length} imagens salvas para este prompt.`);
 
                 // Intervalo aleatorio entre prompts (exceto no ultimo)
