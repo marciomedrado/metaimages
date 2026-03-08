@@ -19,7 +19,8 @@ let currentStatus = {
     total: 0,
     logs: [],
     finished: false,
-    waitingForApproval: false
+    waitingForApproval: false,
+    outputPath: path.join(__dirname, 'output')
 };
 
 let browserContext = null;
@@ -30,7 +31,8 @@ function addLog(msg) {
     console.log(`[${time}] ${msg}`);
 }
 
-async function runAutomation(prompts, mode) {
+async function runAutomation(prompts, mode, customOutputPath) {
+    currentStatus.outputPath = customOutputPath || path.join(__dirname, 'output');
     currentStatus.isRunning = true;
     currentStatus.finished = false;
     currentStatus.current = 0;
@@ -69,8 +71,8 @@ async function runAutomation(prompts, mode) {
 
         addLog('Autorizado! Iniciando processamento de prompts...');
 
-        const outputDir = path.join(__dirname, 'output');
-        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+        const outputDir = currentStatus.outputPath;
+        if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
         for (let i = 0; i < prompts.length; i++) {
             const prompt = prompts[i];
@@ -119,16 +121,17 @@ async function runAutomation(prompts, mode) {
 
                 for (let j = 0; j < last4.length; j++) {
                     const fileName = `${pad(i + 1)}${letters[j]}.png`;
+                    const fullPath = path.join(outputDir, fileName);
                     try {
                         const src = await last4[j].getAttribute('src');
                         if (src && src.startsWith('http')) {
                             const response = await page.request.get(src);
-                            fs.writeFileSync(path.join(outputDir, fileName), await response.body());
+                            fs.writeFileSync(fullPath, await response.body());
                         } else {
-                            await last4[j].screenshot({ path: path.join(outputDir, fileName) });
+                            await last4[j].screenshot({ path: fullPath });
                         }
                     } catch (e) {
-                        try { await last4[j].screenshot({ path: path.join(outputDir, fileName) }); } catch (sq) { }
+                        try { await last4[j].screenshot({ path: fullPath }); } catch (sq) { }
                     }
                 }
                 addLog(`Sucesso: ${last4.length} imagens salvas para este prompt.`);
@@ -152,8 +155,8 @@ app.post('/api/start', (req, res) => {
     if (currentStatus.isRunning && !currentStatus.finished) {
         return res.status(400).json({ error: 'Ja existe um processo rodando.' });
     }
-    const { prompts, mode } = req.body;
-    runAutomation(prompts, mode);
+    const { prompts, mode, outputPath } = req.body;
+    runAutomation(prompts, mode, outputPath);
     res.json({ message: 'Processo iniciado.' });
 });
 
@@ -176,16 +179,22 @@ app.get('/api/status', (req, res) => {
 });
 
 app.get('/api/images', (req, res) => {
-    const dir = path.join(__dirname, 'output');
+    const dir = currentStatus.outputPath;
     if (!fs.existsSync(dir)) return res.json({ images: [] });
     const files = fs.readdirSync(dir).filter(f => f.match(/\.(png|jpg|jpeg|webp)$/i));
     res.json({ images: files.reverse().slice(0, 50) }); // Mostra as 50 ultimas
 });
 
 app.get('/api/open-folder', (req, res) => {
-    const dir = path.join(__dirname, 'output');
+    const dir = currentStatus.outputPath;
     exec(`explorer "${dir}"`);
     res.json({ success: true });
+});
+
+// Alias to serve files from wherever the user chose
+app.get('/dynamic-output/:filename', (req, res) => {
+    const filePath = path.join(currentStatus.outputPath, req.params.filename);
+    res.sendFile(filePath);
 });
 
 app.listen(port, () => {
