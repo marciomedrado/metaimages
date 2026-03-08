@@ -6,7 +6,7 @@ const path = require('path');
 const { exec } = require('child_process');
 
 const app = express();
-const port = 3500;
+const port = 3600;
 
 app.use(cors());
 app.use(express.json());
