@@ -129,18 +129,55 @@ const readline = require('readline-sync');
             // Wait for generation
             await page.waitForTimeout(20000);
 
-            // Find images generated
-            // Meta AI usually generates 4 images.
-            console.log('Looking for generated image...');
-            const images = await page.$$('img');
+            console.log('Procurando pelas imagens geradas...');
 
-            // We can try to download all recent images or the largest one
-            // We just grab screenshots of the page as a fallback or locate the actual generated image.
-            // Since Meta AI DOM is complex, let's screenshot the whole page to not lose it, or look for specific styles.
+            // Pega todos os elementos de imagem na tela
+            const images = await page.locator('img').elementHandles();
+            let generatedImages = [];
 
-            const timestamp = Date.now();
-            await page.screenshot({ path: path.join(outputDir, `result_${i + 1}_${timestamp}.png`), fullPage: true });
-            console.log(`Saved screenshot for prompt ${i + 1}`);
+            // Filtra para pegar apenas as imagens maiores (ignorando icones, avatares, etc.)
+            for (const img of images) {
+                const box = await img.boundingBox();
+                if (box && box.width > 100 && box.height > 100) {
+                    generatedImages.push(img);
+                }
+            }
+
+            // Seleciona as ultimas 4 imagens identificadas (assumindo que sao as geradas agora)
+            const last4Images = generatedImages.slice(-4);
+
+            if (last4Images.length === 0) {
+                console.log('[!] Nenhuma imagem de tamanho adequado encontrada. Fazendo screenshot inteiro da pagina...');
+                const timestamp = Date.now();
+                const pad = (num) => num.toString().padStart(2, '0');
+                await page.screenshot({ path: path.join(outputDir, `fallback_${pad(i + 1)}_${timestamp}.png`), fullPage: true });
+            } else {
+                const pad = (num) => num.toString().padStart(2, '0');
+                const letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+                const promptNumStr = pad(i + 1);
+
+                for (let j = 0; j < last4Images.length; j++) {
+                    const letter = letters[j] || `${j}`;
+                    const fileName = `${promptNumStr}${letter}.png`; // ex: 01a.png
+
+                    try {
+                        // Tenta extrair src e baixar diretamente para qualidade maxima
+                        const src = await last4Images[j].getAttribute('src');
+                        if (src && src.startsWith('http')) {
+                            const response = await page.request.get(src);
+                            const buffer = await response.body();
+                            fs.writeFileSync(path.join(outputDir, fileName), buffer);
+                        } else {
+                            // Se fallback (ex: imagem em base64 ou protegida), tira screenshot do proprio elemento
+                            await last4Images[j].screenshot({ path: path.join(outputDir, fileName) });
+                        }
+                        console.log(`-> Imagem salva: ${fileName}`);
+                    } catch (err) {
+                        console.log(`-> (Fallback) Salvando element screenshot para ${fileName}`);
+                        await last4Images[j].screenshot({ path: path.join(outputDir, fileName) });
+                    }
+                }
+            }
 
             // Optional: wait a bit before the next prompt
             await page.waitForTimeout(3000);
@@ -150,6 +187,11 @@ const readline = require('readline-sync');
         }
     }
 
-    console.log('\nAll prompts processed!');
-    await context.close();
+    console.log('\n--- Finalizado! ---');
+    console.log('Todos os prompts foram processados.');
+    console.log('O navegador continuara ABERTO para voce conferir as imagens.');
+    console.log('Pressione Ctrl+C neste terminal para encerrar o programa finalizando o navegador.');
+
+    // Mantem o script rodando infinitamente ate o usuario cancelar
+    await new Promise(() => { });
 })();
