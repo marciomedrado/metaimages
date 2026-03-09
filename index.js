@@ -34,6 +34,13 @@ const readline = require('readline-sync');
         process.exit(0);
     }
 
+    console.log('\n--- Lista de Prompts Carregados ---');
+    prompts.forEach((p, idx) => {
+        console.log(`${idx + 1}.`);
+        console.log(`${p}`); // Print on a separate line for easy copying
+    });
+    console.log('-----------------------------------\n');
+
     console.log('\n--- Navegador ---');
     console.log('Para usar o Meta AI, e necessario estar logado.');
     console.log('1. Usar o navegador interno do robô (Recomendado)');
@@ -268,7 +275,13 @@ const readline = require('readline-sync');
 
     while (true) {
         console.log('\n--- Finalizado processamento padrao ---');
-        let answer = readline.question('Deseja REGERAR ou PROCESSAR DE NOVO algum prompt especifico? (Digite o numero, ex: 2, ou ENTER para sair): ');
+        console.log('Lista de prompts disponiveis:');
+        prompts.forEach((p, idx) => {
+            console.log(`${idx + 1}.`);
+            console.log(`${p}`); // Print on a separate line for easy copying
+        });
+
+        let answer = readline.question('\nDeseja REGERAR ou PROCESSAR DE NOVO algum prompt especifico?\n(Digite o numero, ex: 2, ou ENTER para sair): ');
         if (!answer || !answer.trim()) break;
 
         const pIndex = parseInt(answer.trim()) - 1;

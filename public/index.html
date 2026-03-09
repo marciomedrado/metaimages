@@ -283,6 +283,101 @@
         ::-webkit-scrollbar-thumb:hover {
             background: rgba(255, 255, 255, 0.2);
         }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+        }
+
+        .modal-content {
+            background-color: #1e293b;
+            margin: 5% auto;
+            padding: 2rem;
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .close-modal {
+            position: absolute;
+            right: 1.5rem;
+            top: 1rem;
+            font-size: 2rem;
+            cursor: pointer;
+            color: #94a3b8;
+        }
+
+        .close-modal:hover {
+            color: white;
+        }
+
+        .prompt-list-item {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .prompt-number {
+            background: var(--primary);
+            color: white;
+            min-width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.8rem;
+            flex-shrink: 0;
+        }
+
+        .prompt-text {
+            flex-grow: 1;
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            word-break: break-word;
+        }
+
+        .copy-btn-small {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn-small:hover {
+            background: var(--primary);
+        }
+
+        .btn-gerar {
+            background: rgba(79, 70, 229, 0.2);
+            border: 1px solid var(--primary);
+        }
+
+        .btn-gerar:hover {
+            background: var(--primary);
+        }
     </style>
 </head>
 
@@ -366,13 +461,30 @@
                     </p>
                 </div>
 
-                <div style="margin-top: 2rem;">
+                <div style="margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                     <button id="openFolderBtn" class="btn" style="background: rgba(255,255,255,0.05); color: #cbd5e1;">
-                        📂 Abrir Pasta /output
+                        📂 Abrir /output
+                    </button>
+                    <button id="viewPromptsBtn" class="btn"
+                        style="background: rgba(255,255,255,0.05); color: #cbd5e1; display: none;">
+                        📋 Ver Prompts
                     </button>
                 </div>
             </div>
         </main>
+
+        <!-- Modal para ver prompts -->
+        <div id="promptsModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal">&times;</span>
+                <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📋</span> Prompts em Ordem
+                </h2>
+                <div id="modalPromptList">
+                    <!-- Lista de prompts aparecerá aqui -->
+                </div>
+            </div>
+        </div>
 
         <section class="images-container" style="margin-top: 3rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
@@ -543,6 +655,7 @@
                     statusBadge.textContent = 'Finalizado';
                     statusBadge.className = 'status-badge status-idle';
                     addLog("Processo concluido!");
+                    document.getElementById('viewPromptsBtn').style.display = 'flex';
                     updateGallery();
                     return;
                 }
@@ -561,6 +674,98 @@
 
         document.getElementById('refreshBtn').onclick = updateGallery;
         document.getElementById('openFolderBtn').onclick = () => fetch('/api/open-folder');
+
+        // Modal Logic
+        const promptsModal = document.getElementById('promptsModal');
+        const viewPromptsBtn = document.getElementById('viewPromptsBtn');
+        const closeModal = document.querySelector('.close-modal');
+        const modalPromptList = document.getElementById('modalPromptList');
+
+        viewPromptsBtn.onclick = async () => {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                // Get all prompts (we'll fetch them from the status or add a new endpoint)
+                // For now, let's assume we get them from the server state
+                const promptsRes = await fetch('/api/current-prompts');
+                const promptsData = await promptsRes.json();
+
+                modalPromptList.innerHTML = '';
+                promptsData.prompts.forEach((p, idx) => {
+                    const item = document.createElement('div');
+                    item.className = 'prompt-list-item';
+                    item.innerHTML = `
+                        <div class="prompt-number">${idx + 1}</div>
+                        <div class="prompt-text" id="ptext-${idx}">${p}</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="copy-btn-small" onclick="copyPrompt(${idx}, this)">Copiar</button>
+                            <button class="copy-btn-small btn-gerar" onclick="generatePrompt(${idx}, this)">Gerar</button>
+                        </div>
+                    `;
+                    modalPromptList.appendChild(item);
+                });
+
+                promptsModal.style.display = 'block';
+            } catch (err) {
+                alert("Erro ao carregar prompts.");
+            }
+        };
+
+        window.copyPrompt = (idx, btn) => {
+            const text = document.getElementById(`ptext-${idx}`).innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btn.innerText;
+                btn.innerText = 'Copiado!';
+                btn.style.background = '#10b981';
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            });
+        };
+
+        window.generatePrompt = async (idx, btn) => {
+            const originalText = btn.innerText;
+            btn.innerText = 'Enviando...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/generate-single', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: idx })
+                });
+
+                if (response.ok) {
+                    addLog(`Gerando prompt ${idx + 1} individualmente... Veja os logs.`);
+                    btn.innerText = 'Gerando...';
+                    // Re-start polling if not running
+                    if (!isRunning) {
+                        isRunning = true;
+                        checkLogs();
+                    }
+                } else {
+                    const data = await response.json();
+                    alert(data.error || "Erro ao gerar.");
+                    btn.innerText = originalText;
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                alert("Falha de conexão.");
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+
+            // Reativa apos 10s pra nao clicar mil vezes
+            setTimeout(() => {
+                btn.innerText = "Gerar";
+                btn.disabled = false;
+            }, 10000);
+        };
+
+        closeModal.onclick = () => promptsModal.style.display = 'none';
+        window.onclick = (event) => { if (event.target == promptsModal) promptsModal.style.display = 'none'; };
 
         setInterval(updateGallery, 10000);
         updateGallery();

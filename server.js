@@ -20,15 +20,129 @@ let currentStatus = {
     logs: [],
     finished: false,
     waitingForApproval: false,
-    outputPath: path.join(__dirname, 'output')
+    outputPath: path.join(__dirname, 'output'),
+    currentPrompts: []
 };
 
 let browserContext = null;
+let activePage = null;
+let globalKnownSrcs = new Set();
+let currentPromptsList = [];
 
 function addLog(msg) {
     const time = new Date().toLocaleTimeString();
     currentStatus.logs.push(`[${time}] ${msg}`);
     console.log(`[${time}] ${msg}`);
+}
+
+async function processSinglePrompt(page, prompt, i, outputDir, minDelay = 0, maxDelay = 0) {
+    currentStatus.current = i + 1;
+    addLog(`Processando prompt (${i + 1}/${currentStatus.total}): "${prompt.substring(0, 30)}..."`);
+
+    try {
+        await page.waitForTimeout(2000);
+
+        // Localizador robusto
+        let inputElement = page.getByRole('textbox').last();
+        let isVisible = await inputElement.isVisible().catch(() => false);
+        if (!isVisible) inputElement = page.locator('div[contenteditable="true"]').last();
+        isVisible = await inputElement.isVisible().catch(() => false);
+        if (!isVisible) inputElement = page.locator('textarea[placeholder*="Ask Meta AI"]').last();
+        isVisible = await inputElement.isVisible().catch(() => false);
+
+        if (!isVisible) {
+            addLog(`[!] Campo de entrada não encontrado para o prompt ${i + 1}.`);
+            return false;
+        }
+
+        // Captura URLs atuais antes de enviar o prompt para detectar o que é NOVO
+        const existingSrcs = await page.evaluate(() => {
+            return Array.from(document.querySelectorAll('img')).map(img => img.src).filter(s => s);
+        });
+        const beforeSet = new Set(existingSrcs);
+
+        const generateCommand = `imagine ${prompt}`;
+        await inputElement.fill(generateCommand);
+        await page.waitForTimeout(500);
+        await page.keyboard.press('Enter');
+
+        addLog('Gerando imagens (aguardando deteção de novos arquivos)...');
+
+        let waitTime = 0;
+        const maxWaitTime = 90000;
+        const interval = 2000;
+        let newImagesFound = [];
+        let detectedAt = null;
+
+        while (waitTime < maxWaitTime) {
+            await page.waitForTimeout(interval);
+            waitTime += interval;
+
+            const currentData = await page.evaluate(() => {
+                return Array.from(document.querySelectorAll('img')).map(img => ({
+                    src: img.src,
+                    width: img.width,
+                    height: img.height,
+                    naturalWidth: img.naturalWidth
+                }));
+            });
+
+            newImagesFound = currentData.filter(img => {
+                const isLarge = (img.naturalWidth > 100) || (img.width > 100);
+                return isLarge && img.src && !beforeSet.has(img.src);
+            });
+
+            if (newImagesFound.length >= 4) {
+                addLog(`Sucesso: 4 novas imagens detectadas!`);
+                await page.waitForTimeout(4000); // Wait for highres
+                break;
+            } else if (newImagesFound.length > 0) {
+                if (!detectedAt) detectedAt = waitTime;
+                if (waitTime - detectedAt > 20000) {
+                    addLog(`[!] Tempo esgotado esperando as 4 imagens. Salvando as ${newImagesFound.length} que apareceram.`);
+                    break;
+                }
+            }
+        }
+
+        if (newImagesFound.length === 0) {
+            addLog(`[!] Nenhuma nova imagem detectada para o prompt ${i + 1}.`);
+            return false;
+        }
+
+        // Download e Save
+        const imagesToSave = newImagesFound.slice(0, 4);
+        const pad = (num) => num.toString().padStart(2, '0');
+        const letters = ['a', 'b', 'c', 'd'];
+
+        for (let j = 0; j < imagesToSave.length; j++) {
+            const fileName = `${pad(i + 1)}${letters[j]}.png`;
+            const fullPath = path.join(outputDir, fileName);
+            const imgSrc = imagesToSave[j].src;
+
+            // Se ja existir, deleta para substituir
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+
+            try {
+                if (imgSrc && imgSrc.startsWith('http')) {
+                    const response = await page.request.get(imgSrc);
+                    fs.writeFileSync(fullPath, await response.body());
+                } else {
+                    const imgEl = await page.locator(`img[src="${imgSrc}"]`).first();
+                    await imgEl.screenshot({ path: fullPath });
+                }
+                addLog(`-> Imagem salva: ${fileName}`);
+            } catch (e) {
+                addLog(`[!] Erro ao salvar ${fileName}: ${e.message}`);
+            }
+            globalKnownSrcs.add(imgSrc);
+        }
+
+        return true;
+    } catch (err) {
+        addLog(`Erro no processamento do prompt ${i + 1}: ${err.message}`);
+        return false;
+    }
 }
 
 async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, maxDelay = 30) {
@@ -37,6 +151,8 @@ async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, max
     currentStatus.finished = false;
     currentStatus.current = 0;
     currentStatus.total = prompts.length;
+    currentPromptsList = prompts;
+    currentStatus.currentPrompts = prompts;
     currentStatus.logs = [];
     currentStatus.waitingForApproval = false;
 
@@ -50,160 +166,41 @@ async function runAutomation(prompts, mode, customOutputPath, minDelay = 10, max
         channel: mode === 'user' ? 'chrome' : undefined
     };
 
-    addLog('Iniciando o navegador para o processamento em lote...');
+    addLog('Iniciando o navegador...');
 
     try {
         const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
         browserContext = context;
         const page = await context.newPage();
+        activePage = page;
 
         addLog('Navegando ate o site do Meta AI...');
         await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
 
         currentStatus.waitingForApproval = true;
         addLog('--- AGUARDANDO AUTORIZACAO ---');
-        addLog('Por favor, verifique se voce esta logado no Meta AI.');
-        addLog('Clique em "ESTOU PRONTO" no seu Dashboard para comecar.');
+        addLog('Clique em "ESTOU PRONTO" apos estar logado.');
 
         while (currentStatus.waitingForApproval) {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        addLog('Autorizado! Iniciando processamento de prompts...');
-
         const outputDir = currentStatus.outputPath;
         if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-        // Set global para rastrear URLs de imagens ja conhecidas/salvas
-        const knownSrcs = new Set();
-
-        // Coleta URLs iniciais que ja existem na pagina (avatares, logos, etc)
-        const initialSrcs = await page.evaluate(() => {
-            return Array.from(document.querySelectorAll('img')).map(img => img.src).filter(s => s);
-        });
-        initialSrcs.forEach(s => knownSrcs.add(s));
-        addLog(`[debug] ${knownSrcs.size} imagens pre-existentes registradas.`);
-
         for (let i = 0; i < prompts.length; i++) {
-            const prompt = prompts[i];
-            currentStatus.current = i + 1;
-            addLog(`Prompt (${i + 1}/${prompts.length}): "${prompt.substring(0, 30)}${prompt.length > 30 ? '...' : ''}"`);
+            if (!currentStatus.isRunning) break;
 
-            try {
-                // Aguarda elementos
-                await page.waitForTimeout(3000);
+            await processSinglePrompt(page, prompts[i], i, outputDir);
 
-                // Localizador robusto
-                let inputElement = page.getByRole('textbox').last();
-                let isVisible = await inputElement.isVisible().catch(() => false);
-
-                if (!isVisible) inputElement = page.locator('div[contenteditable="true"]').last();
-                isVisible = await inputElement.isVisible().catch(() => false);
-
-                if (!isVisible) inputElement = page.locator('textarea[placeholder*="Ask Meta AI"]').last();
-                isVisible = await inputElement.isVisible().catch(() => false);
-
-                if (!isVisible) {
-                    addLog(`[!] Campo de entrada não encontrado para o prompt ${i + 1}. Aguardando 10s...`);
-                    await page.waitForTimeout(10000);
-                    continue;
-                }
-
-                const generateCommand = `imagine ${prompt}`;
-                await inputElement.fill(generateCommand);
-                await page.waitForTimeout(500);
-                await page.keyboard.press('Enter');
-
-                addLog('Gerando imagens (aguardando 25 segundos)...');
-                await page.waitForTimeout(25000);
-
-                // Rola ate o final para forcar carregamento de lazy images
-                await page.keyboard.press('Escape');
-                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                await page.waitForTimeout(3000);
-
-                // ===== COLETA DE NOVAS IMAGENS POR URL (src) =====
-                // Pega todos os srcs atuais da pagina
-                const currentImgData = await page.evaluate(() => {
-                    return Array.from(document.querySelectorAll('img')).map(img => ({
-                        src: img.src,
-                        naturalWidth: img.naturalWidth,
-                        naturalHeight: img.naturalHeight,
-                        width: img.width,
-                        height: img.height
-                    }));
-                });
-
-                // Filtra: somente imagens grandes e com src que NAO conhecemos ainda
-                const newImages = currentImgData.filter(img => {
-                    const isLarge = (img.naturalWidth > 100 && img.naturalHeight > 100) ||
-                        (img.width > 100 && img.height > 100);
-                    const isNew = img.src && !knownSrcs.has(img.src);
-                    return isLarge && isNew;
-                });
-
-                addLog(`[debug] ${newImages.length} imagens NOVAS detectadas para este prompt.`);
-
-                const imagesToSave = newImages.slice(0, 4);
-                const pad = (num) => num.toString().padStart(2, '0');
-                const letters = ['a', 'b', 'c', 'd'];
-
-                for (let j = 0; j < imagesToSave.length; j++) {
-                    const fileName = `${pad(i + 1)}${letters[j]}.png`;
-                    const fullPath = path.join(outputDir, fileName);
-                    const imgSrc = imagesToSave[j].src;
-
-                    try {
-                        if (imgSrc && imgSrc.startsWith('http')) {
-                            const response = await page.request.get(imgSrc);
-                            fs.writeFileSync(fullPath, await response.body());
-                        } else if (imgSrc && imgSrc.startsWith('data:')) {
-                            // Imagem base64 embarcada
-                            const base64Data = imgSrc.replace(/^data:image\/\w+;base64,/, '');
-                            fs.writeFileSync(fullPath, Buffer.from(base64Data, 'base64'));
-                        } else {
-                            // Fallback: screenshot do elemento
-                            const imgEl = await page.locator(`img[src="${imgSrc}"]`).first();
-                            await imgEl.screenshot({ path: fullPath });
-                        }
-                        addLog(`-> Imagem salva: ${fileName}`);
-                    } catch (e) {
-                        addLog(`[!] Erro ao baixar ${fileName}: ${e.message}`);
-                        // Tenta screenshot como ultimo recurso
-                        try {
-                            const imgEl = await page.locator(`img[src="${imgSrc}"]`).first();
-                            await imgEl.screenshot({ path: fullPath });
-                            addLog(`-> Imagem salva (screenshot): ${fileName}`);
-                        } catch (sq) {
-                            addLog(`[!] Falha total ao salvar ${fileName}`);
-                        }
-                    }
-
-                    // Marca esta URL como ja conhecida para nao duplicar nos proximos prompts
-                    knownSrcs.add(imgSrc);
-                }
-
-                // Tambem marca todas as imagens grandes atuais como conhecidas
-                // (mesmo as que nao salvamos, para evitar confusao futura)
-                currentImgData.forEach(img => {
-                    if (img.src) knownSrcs.add(img.src);
-                });
-
-                addLog(`Sucesso: ${imagesToSave.length} imagens salvas para este prompt.`);
-
-                // Intervalo aleatorio entre prompts (exceto no ultimo)
-                if (i < prompts.length - 1) {
-                    const sleepTime = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + parseInt(minDelay);
-                    addLog(`Aguardando ${sleepTime} segundos antes do proximo prompt...`);
-                    await page.waitForTimeout(sleepTime * 1000);
-                }
-
-            } catch (err) {
-                addLog(`Erro no prompt ${i + 1}: ${err.message}`);
+            if (i < prompts.length - 1) {
+                const sleepTime = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + parseInt(minDelay);
+                addLog(`Aguardando ${sleepTime}s...`);
+                await page.waitForTimeout(sleepTime * 1000);
             }
         }
 
-        addLog('Tudo pronto! O navegador ficara aberto para voce conferir.');
+        addLog('Processo concluido!');
         currentStatus.finished = true;
 
     } catch (error) {
@@ -251,6 +248,23 @@ app.get('/api/open-folder', (req, res) => {
     const dir = currentStatus.outputPath;
     exec(`explorer "${dir}"`);
     res.json({ success: true });
+});
+
+app.get('/api/current-prompts', (req, res) => {
+    res.json({ prompts: currentPromptsList });
+});
+
+app.post('/api/generate-single', async (req, res) => {
+    const { index } = req.body;
+    if (!activePage) return res.status(400).json({ error: 'Navegador não está ativo.' });
+
+    const prompt = currentPromptsList[index];
+    if (!prompt) return res.status(400).json({ error: 'Prompt não encontrado.' });
+
+    // Executa em "background" (async)
+    processSinglePrompt(activePage, prompt, index, currentStatus.outputPath);
+
+    res.json({ message: 'Dando início à geração individual...' });
 });
 
 // Alias to serve files from wherever the user chose
