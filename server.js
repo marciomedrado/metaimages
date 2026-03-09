@@ -244,6 +244,13 @@ app.get('/api/images', (req, res) => {
     res.json({ images: files.reverse().slice(0, 50) }); // Mostra as 50 ultimas
 });
 
+app.get('/api/approved-images', (req, res) => {
+    const dir = path.join(currentStatus.outputPath, 'Aprovados');
+    if (!fs.existsSync(dir)) return res.json({ images: [] });
+    const files = fs.readdirSync(dir).filter(f => f.match(/\.(png|jpg|jpeg|webp)$/i));
+    res.json({ images: files });
+});
+
 app.get('/api/open-folder', (req, res) => {
     const dir = currentStatus.outputPath;
     exec(`explorer "${dir}"`);
@@ -265,6 +272,42 @@ app.post('/api/generate-single', async (req, res) => {
     processSinglePrompt(activePage, prompt, index, currentStatus.outputPath);
 
     res.json({ message: 'Dando início à geração individual...' });
+});
+
+app.post('/api/approve-image', (req, res) => {
+    const { index, letter } = req.body;
+    const pad = (num) => num.toString().padStart(2, '0');
+    const promptNum = pad(index + 1);
+
+    const outputDir = currentStatus.outputPath;
+    const aprovadosDir = path.join(outputDir, 'Aprovados');
+
+    if (!fs.existsSync(aprovadosDir)) {
+        fs.mkdirSync(aprovadosDir, { recursive: true });
+    }
+
+    // Source file
+    const srcFileName = `${promptNum}${letter}.png`;
+    const srcPath = path.join(outputDir, srcFileName);
+
+    if (!fs.existsSync(srcPath)) {
+        return res.status(404).json({ error: 'Imagem original não encontrada. Gere as imagens primeiro.' });
+    }
+
+    // Find and remove existing approved image for this prompt index
+    const files = fs.readdirSync(aprovadosDir);
+    files.forEach(file => {
+        if (file.startsWith(promptNum)) {
+            fs.unlinkSync(path.join(aprovadosDir, file));
+        }
+    });
+
+    // Copy new selection
+    const destPath = path.join(aprovadosDir, srcFileName);
+    fs.copyFileSync(srcPath, destPath);
+
+    addLog(`Imagem ${srcFileName} aprovada e salva em /Aprovados`);
+    res.json({ success: true, approvedFile: srcFileName });
 });
 
 // Alias to serve files from wherever the user chose

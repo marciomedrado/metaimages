@@ -370,13 +370,46 @@
             background: var(--primary);
         }
 
-        .btn-gerar {
-            background: rgba(79, 70, 229, 0.2);
-            border: 1px solid var(--primary);
-        }
-
         .btn-gerar:hover {
             background: var(--primary);
+        }
+
+        .selection-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.25rem;
+            margin-top: 0.5rem;
+        }
+
+        .btn-select {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: #94a3b8;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            width: 32px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-select:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border-color: #64748b;
+        }
+
+        .btn-select.active {
+            background: #10b981;
+            color: white;
+            border-color: #059669;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
         }
     </style>
 </head>
@@ -686,21 +719,40 @@
                 const res = await fetch('/api/status');
                 const data = await res.json();
 
-                // Get all prompts (we'll fetch them from the status or add a new endpoint)
-                // For now, let's assume we get them from the server state
                 const promptsRes = await fetch('/api/current-prompts');
                 const promptsData = await promptsRes.json();
 
+                // Fetch approved images to show active state
+                const approvedRes = await fetch('/api/images'); // We need a way to distinguish approved images
+                // Actually, let's just fetch from /api/images and check which ones are in Aprovados
+                // But /api/images currently only lists files in the main output folder.
+
+                // Let's add a list of approved files from the server or just use a new API
+                const approvedListRes = await fetch('/api/approved-images');
+                const approvedData = await approvedListRes.json();
+                const approvedSet = new Set(approvedData.images);
+
                 modalPromptList.innerHTML = '';
                 promptsData.prompts.forEach((p, idx) => {
+                    const pad = (num) => num.toString().padStart(2, '0');
+                    const promptNum = pad(idx + 1);
+
                     const item = document.createElement('div');
                     item.className = 'prompt-list-item';
                     item.innerHTML = `
                         <div class="prompt-number">${idx + 1}</div>
                         <div class="prompt-text" id="ptext-${idx}">${p}</div>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button class="copy-btn-small" onclick="copyPrompt(${idx}, this)">Copiar</button>
-                            <button class="copy-btn-small btn-gerar" onclick="generatePrompt(${idx}, this)">Gerar</button>
+                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="copy-btn-small" onclick="copyPrompt(${idx}, this)">Copiar</button>
+                                <button class="copy-btn-small btn-gerar" onclick="generatePrompt(${idx}, this)">Gerar</button>
+                            </div>
+                            <div class="selection-grid">
+                                <button class="btn-select ${approvedSet.has(promptNum + 'a.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'a', this)">A</button>
+                                <button class="btn-select ${approvedSet.has(promptNum + 'b.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'b', this)">B</button>
+                                <button class="btn-select ${approvedSet.has(promptNum + 'c.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'c', this)">C</button>
+                                <button class="btn-select ${approvedSet.has(promptNum + 'd.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'd', this)">D</button>
+                            </div>
                         </div>
                     `;
                     modalPromptList.appendChild(item);
@@ -709,6 +761,29 @@
                 promptsModal.style.display = 'block';
             } catch (err) {
                 alert("Erro ao carregar prompts.");
+            }
+        };
+
+        window.approveImage = async (idx, letter, btn) => {
+            try {
+                const response = await fetch('/api/approve-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: idx, letter: letter })
+                });
+
+                if (response.ok) {
+                    // Update UI active state
+                    const parent = btn.parentElement;
+                    parent.querySelectorAll('.btn-select').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    addLog(`Prompt ${idx + 1} imagem ${letter.toUpperCase()} aprovada.`);
+                } else {
+                    const data = await response.json();
+                    alert(data.error || "Erro ao aprovar imagem.");
+                }
+            } catch (err) {
+                alert("Falha de conexão.");
             }
         };
 
