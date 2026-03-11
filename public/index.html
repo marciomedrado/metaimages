@@ -435,6 +435,9 @@
                 <div class="form-group">
                     <label>Manual (Um por linha)</label>
                     <textarea id="promptArea" rows="8" placeholder="Ex: ferrari 1990 em roma..."></textarea>
+                    <button id="savePromptsBtn" class="btn"
+                        style="margin-top: 0.5rem; background: rgba(255,255,255,0.1); color: white;">Salvar
+                        Prompts</button>
                 </div>
 
                 <div class="form-group">
@@ -536,6 +539,7 @@
         const dropZone = document.getElementById('dropZone');
         const promptArea = document.getElementById('promptArea');
         const startBtn = document.getElementById('startBtn');
+        const savePromptsBtn = document.getElementById('savePromptsBtn');
         const logArea = document.getElementById('logArea');
         const browserMode = document.getElementById('browserMode');
         const statusBadge = document.getElementById('statusBadge');
@@ -544,6 +548,40 @@
         const imagesGrid = document.getElementById('imagesGrid');
 
         let isRunning = false;
+
+        savePromptsBtn.onclick = async () => {
+            const prompts = promptArea.value.split('\n').map(p => p.trim()).filter(p => p);
+            const customOutput = document.getElementById('outputPath').value.trim();
+
+            if (prompts.length === 0) {
+                alert("Insira pelo menos um prompt antes de salvar!");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/save-prompts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompts, outputPath: customOutput || null })
+                });
+
+                if (res.ok) {
+                    const originalText = savePromptsBtn.innerText;
+                    savePromptsBtn.innerText = 'Prompts Salvos!';
+                    savePromptsBtn.style.background = '#10b981';
+                    setTimeout(() => {
+                        savePromptsBtn.innerText = originalText;
+                        savePromptsBtn.style.background = 'rgba(255,255,255,0.1)';
+                    }, 2000);
+
+                    document.getElementById('viewPromptsBtn').style.display = 'flex';
+                } else {
+                    alert('Erro ao salvar prompts.');
+                }
+            } catch (err) {
+                alert('Erro de conexão ao salvar prompts.');
+            }
+        };
 
         // Drag & Drop
         dropZone.addEventListener('dragover', (e) => {
@@ -805,11 +843,14 @@
             btn.innerText = 'Enviando...';
             btn.disabled = true;
 
+            const browserModeVal = document.getElementById('browserMode').value;
+            const customOutput = document.getElementById('outputPath').value.trim();
+
             try {
                 const response = await fetch('/api/generate-single', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ index: idx })
+                    body: JSON.stringify({ index: idx, mode: browserModeVal, outputPath: customOutput || null })
                 });
 
                 if (response.ok) {

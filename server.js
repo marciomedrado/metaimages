@@ -219,6 +219,18 @@ app.post('/api/start', (req, res) => {
     res.json({ message: 'Processo iniciado.' });
 });
 
+app.post('/api/save-prompts', (req, res) => {
+    const { prompts, outputPath } = req.body;
+    currentPromptsList = prompts;
+    currentStatus.currentPrompts = prompts;
+    if (outputPath) {
+        currentStatus.outputPath = outputPath;
+    } else {
+        currentStatus.outputPath = path.join(__dirname, 'output');
+    }
+    res.json({ success: true });
+});
+
 app.post('/api/approve', (req, res) => {
     currentStatus.waitingForApproval = false;
     res.json({ success: true });
@@ -261,15 +273,73 @@ app.get('/api/current-prompts', (req, res) => {
     res.json({ prompts: currentPromptsList });
 });
 
+async function runSingleAutomation(index, mode, customOutputPath) {
+    if (customOutputPath) {
+        currentStatus.outputPath = customOutputPath;
+    } else {
+        currentStatus.outputPath = path.join(__dirname, 'output');
+    }
+    currentStatus.isRunning = true;
+    currentStatus.finished = false;
+    currentStatus.current = index + 1;
+    currentStatus.total = currentPromptsList.length || 1;
+    currentStatus.waitingForApproval = false;
+
+    if (!activePage) {
+        const userDataDir = mode === 'user'
+            ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data')
+            : path.join(__dirname, 'browser_data');
+
+        const launchOptions = {
+            headless: false,
+            viewport: null,
+            channel: mode === 'user' ? 'chrome' : undefined
+        };
+
+        addLog('Iniciando o navegador para geracao individual...');
+
+        try {
+            const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
+            browserContext = context;
+            const page = await context.newPage();
+            activePage = page;
+
+            addLog('Navegando ate o site do Meta AI...');
+            await page.goto('https://www.meta.ai/', { waitUntil: 'domcontentloaded' });
+
+            currentStatus.waitingForApproval = true;
+            addLog('--- AGUARDANDO AUTORIZACAO ---');
+            addLog('Clique em "ESTOU PRONTO" apos estar logado.');
+
+            while (currentStatus.waitingForApproval) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
+
+        } catch (error) {
+            addLog(`Erro Critico ao iniciar navegador: ${error.message}`);
+            currentStatus.isRunning = false;
+            currentStatus.finished = true;
+            return;
+        }
+    }
+
+    const outputDir = currentStatus.outputPath;
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+    await processSinglePrompt(activePage, currentPromptsList[index], index, outputDir);
+
+    addLog('Geracao individual concluida!');
+    currentStatus.isRunning = false;
+}
+
 app.post('/api/generate-single', async (req, res) => {
-    const { index } = req.body;
-    if (!activePage) return res.status(400).json({ error: 'Navegador não está ativo.' });
+    const { index, mode, outputPath } = req.body;
 
     const prompt = currentPromptsList[index];
     if (!prompt) return res.status(400).json({ error: 'Prompt não encontrado.' });
 
     // Executa em "background" (async)
-    processSinglePrompt(activePage, prompt, index, currentStatus.outputPath);
+    runSingleAutomation(index, mode || 'internal', outputPath);
 
     res.json({ message: 'Dando início à geração individual...' });
 });
