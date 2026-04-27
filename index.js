@@ -34,6 +34,23 @@ const readline = require('readline-sync');
         process.exit(0);
     }
 
+    console.log('\n--- Selecao de Formato ---');
+    const formats = ['16:9', '9:16', '1:1', 'Personalizado'];
+    const formatIdx = readline.keyInSelect(formats, 'Escolha o formato das imagens:');
+
+    if (formatIdx === -1) {
+        console.log('Cancelado.');
+        process.exit(0);
+    }
+
+    let selectedFormat = formats[formatIdx];
+    if (selectedFormat === 'Personalizado') {
+        selectedFormat = readline.question('Digite o formato personalizado: ');
+    }
+
+    // Append format to each prompt
+    prompts = prompts.map(p => `${p} ${selectedFormat}`);
+
     console.log('\n--- Lista de Prompts Carregados ---');
     prompts.forEach((p, idx) => {
         console.log(`${idx + 1}.`);

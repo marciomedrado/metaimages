@@ -411,6 +411,28 @@
             border-color: #059669;
             box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
         }
+
+        .btn-format {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: white;
+            height: 80px;
+            font-size: 1.2rem;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .btn-format:hover {
+            background: var(--primary);
+            transform: translateY(-2px);
+            border-color: transparent;
+        }
+
+        .btn-format span {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            font-weight: 400;
+        }
     </style>
 </head>
 
@@ -509,15 +531,35 @@
             </div>
         </main>
 
-        <!-- Modal para ver prompts -->
-        <div id="promptsModal" class="modal">
-            <div class="modal-content">
-                <span class="close-modal">&times;</span>
-                <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <span>📋</span> Prompts em Ordem
+        <!-- Modal para seleção de formato -->
+        <div id="formatModal" class="modal">
+            <div class="modal-content" style="max-width: 500px; margin-top: 10vh;">
+                <span class="close-modal" id="closeFormatModal">&times;</span>
+                <h2 style="margin-bottom: 2rem; text-align: center; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
+                    Escolha o Formato das Imagens
                 </h2>
-                <div id="modalPromptList">
-                    <!-- Lista de prompts aparecerá aqui -->
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <button class="btn btn-format" onclick="selectFormat('16:9')">
+                        16:9 <span>Widescreen</span>
+                    </button>
+                    <button class="btn btn-format" onclick="selectFormat('9:16')">
+                        9:16 <span>Vertical</span>
+                    </button>
+                    <button class="btn btn-format" onclick="selectFormat('1:1')">
+                        1:1 <span>Quadrado</span>
+                    </button>
+                    <button class="btn btn-format" onclick="toggleCustomFormat()">
+                        ✨ <span>Personalizado</span>
+                    </button>
+                </div>
+
+                <div id="customFormatContainer" style="display: none; animation: fadeIn 0.3s ease;">
+                    <div class="form-group">
+                        <label>Formato Personalizado</label>
+                        <input type="text" id="customFormatInput" placeholder="Ex: 4:3 ou 21:9">
+                    </div>
+                    <button class="btn btn-primary" onclick="applyCustomFormat()">Confirmar</button>
                 </div>
             </div>
         </div>
@@ -549,23 +591,60 @@
 
         let isRunning = false;
 
-        savePromptsBtn.onclick = async () => {
+        savePromptsBtn.onclick = () => {
             const prompts = promptArea.value.split('\n').map(p => p.trim()).filter(p => p);
-            const customOutput = document.getElementById('outputPath').value.trim();
-
             if (prompts.length === 0) {
                 alert("Insira pelo menos um prompt antes de salvar!");
                 return;
             }
+            document.getElementById('formatModal').style.display = 'block';
+        };
 
+        const formatModal = document.getElementById('formatModal');
+        const customFormatContainer = document.getElementById('customFormatContainer');
+        const customFormatInput = document.getElementById('customFormatInput');
+
+        window.toggleCustomFormat = () => {
+            customFormatContainer.style.display = customFormatContainer.style.display === 'none' ? 'block' : 'none';
+            if (customFormatContainer.style.display === 'block') {
+                customFormatInput.focus();
+            }
+        };
+
+        window.selectFormat = async (format) => {
+            await finalizeSave(format);
+        };
+
+        window.applyCustomFormat = async () => {
+            const val = customFormatInput.value.trim();
+            if (!val) {
+                alert("Digite o formato!");
+                return;
+            }
+            await finalizeSave(val);
+        };
+
+        async function finalizeSave(format) {
+            const prompts = promptArea.value.split('\n').map(p => p.trim()).filter(p => p);
+            const formattedPrompts = prompts.map(p => `${p} ${format}`);
+            
+            // Update the area with the new formatted text
+            promptArea.value = formattedPrompts.join('\n');
+            
+            const customOutput = document.getElementById('outputPath').value.trim();
+            
             try {
                 const res = await fetch('/api/save-prompts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompts, outputPath: customOutput || null })
+                    body: JSON.stringify({ prompts: formattedPrompts, outputPath: customOutput || null })
                 });
 
                 if (res.ok) {
+                    formatModal.style.display = 'none';
+                    customFormatContainer.style.display = 'none';
+                    customFormatInput.value = '';
+
                     const originalText = savePromptsBtn.innerText;
                     savePromptsBtn.innerText = 'Prompts Salvos!';
                     savePromptsBtn.style.background = '#10b981';
@@ -575,13 +654,14 @@
                     }, 2000);
 
                     document.getElementById('viewPromptsBtn').style.display = 'flex';
+                    addLog(`Prompts salvos com o formato: ${format}`);
                 } else {
                     alert('Erro ao salvar prompts.');
                 }
             } catch (err) {
                 alert('Erro de conexão ao salvar prompts.');
             }
-        };
+        }
 
         // Drag & Drop
         dropZone.addEventListener('dragover', (e) => {
@@ -880,8 +960,15 @@
             }, 10000);
         };
 
+        document.getElementById('closeFormatModal').onclick = () => {
+            formatModal.style.display = 'none';
+        };
+
         closeModal.onclick = () => promptsModal.style.display = 'none';
-        window.onclick = (event) => { if (event.target == promptsModal) promptsModal.style.display = 'none'; };
+        window.onclick = (event) => {
+            if (event.target == promptsModal) promptsModal.style.display = 'none';
+            if (event.target == formatModal) formatModal.style.display = 'none';
+        };
 
         setInterval(updateGallery, 10000);
         updateGallery();
