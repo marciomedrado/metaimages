@@ -847,50 +847,53 @@
         viewPromptsBtn.onclick = async () => {
             try {
                 const res = await fetch('/api/status');
+                if (!res.ok) throw new Error("Erro ao buscar status");
                 const data = await res.json();
 
                 const promptsRes = await fetch('/api/current-prompts');
+                if (!promptsRes.ok) throw new Error("Erro ao buscar prompts");
                 const promptsData = await promptsRes.json();
 
                 // Fetch approved images to show active state
-                const approvedRes = await fetch('/api/images'); // We need a way to distinguish approved images
-                // Actually, let's just fetch from /api/images and check which ones are in Aprovados
-                // But /api/images currently only lists files in the main output folder.
-
-                // Let's add a list of approved files from the server or just use a new API
                 const approvedListRes = await fetch('/api/approved-images');
+                if (!approvedListRes.ok) throw new Error("Erro ao buscar imagens aprovadas");
                 const approvedData = await approvedListRes.json();
                 const approvedSet = new Set(approvedData.images);
 
                 modalPromptList.innerHTML = '';
-                promptsData.prompts.forEach((p, idx) => {
-                    const pad = (num) => num.toString().padStart(2, '0');
-                    const promptNum = pad(idx + 1);
+                if (!promptsData.prompts || promptsData.prompts.length === 0) {
+                    modalPromptList.innerHTML = '<p style="text-align:center; color:#94a3b8;">Nenhum prompt carregado.</p>';
+                } else {
+                    promptsData.prompts.forEach((p, idx) => {
+                        const pad = (num) => num.toString().padStart(2, '0');
+                        const promptNum = pad(idx + 1);
 
-                    const item = document.createElement('div');
-                    item.className = 'prompt-list-item';
-                    item.innerHTML = `
-                        <div class="prompt-number">${idx + 1}</div>
-                        <div class="prompt-text" id="ptext-${idx}">${p}</div>
-                        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
-                            <div style="display: flex; gap: 0.5rem;">
-                                <button class="copy-btn-small" onclick="copyPrompt(${idx}, this)">Copiar</button>
-                                <button class="copy-btn-small btn-gerar" onclick="generatePrompt(${idx}, this)">Gerar</button>
+                        const item = document.createElement('div');
+                        item.className = 'prompt-list-item';
+                        item.innerHTML = `
+                            <div class="prompt-number">${idx + 1}</div>
+                            <div class="prompt-text" id="ptext-${idx}">${p}</div>
+                            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="copy-btn-small" onclick="copyPrompt(${idx}, this)">Copiar</button>
+                                    <button class="copy-btn-small btn-gerar" onclick="generatePrompt(${idx}, this)">Gerar</button>
+                                </div>
+                                <div class="selection-grid">
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'a.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'a', this)">A</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'b.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'b', this)">B</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'c.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'c', this)">C</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'd.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'd', this)">D</button>
+                                </div>
                             </div>
-                            <div class="selection-grid">
-                                <button class="btn-select ${approvedSet.has(promptNum + 'a.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'a', this)">A</button>
-                                <button class="btn-select ${approvedSet.has(promptNum + 'b.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'b', this)">B</button>
-                                <button class="btn-select ${approvedSet.has(promptNum + 'c.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'c', this)">C</button>
-                                <button class="btn-select ${approvedSet.has(promptNum + 'd.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'd', this)">D</button>
-                            </div>
-                        </div>
-                    `;
-                    modalPromptList.appendChild(item);
-                });
+                        `;
+                        modalPromptList.appendChild(item);
+                    });
+                }
 
                 promptsModal.style.display = 'block';
             } catch (err) {
-                alert("Erro ao carregar prompts.");
+                console.error(err);
+                alert("Erro ao carregar prompts: " + err.message);
             }
         };
 

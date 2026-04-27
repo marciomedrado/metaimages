@@ -264,7 +264,7 @@ app.get('/api/images', (req, res) => {
 });
 
 app.get('/api/approved-images', (req, res) => {
-    const dir = path.join(currentStatus.outputPath, 'Aprovados');
+    const dir = currentStatus.approvedPath;
     if (!fs.existsSync(dir)) return res.json({ images: [] });
     const files = fs.readdirSync(dir).filter(f => f.match(/\.(png|jpg|jpeg|webp)$/i));
     res.json({ images: files });
