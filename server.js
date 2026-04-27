@@ -276,6 +276,19 @@ app.get('/api/open-folder', (req, res) => {
     res.json({ success: true });
 });
 
+app.get('/api/image/:filename', (req, res) => {
+    const filename = req.params.filename;
+    if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+        return res.status(400).send('Nome de arquivo invalido');
+    }
+    const filepath = path.join(currentStatus.outputPath, filename);
+    if (fs.existsSync(filepath)) {
+        res.sendFile(filepath);
+    } else {
+        res.status(404).send('Imagem nao encontrada');
+    }
+});
+
 app.get('/api/current-prompts', (req, res) => {
     res.json({ prompts: currentPromptsList });
 });

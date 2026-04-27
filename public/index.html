@@ -120,6 +120,26 @@
             box-shadow: 0 0 0 4px var(--primary-glow);
         }
 
+        .thumb-img {
+            width: 50px;
+            height: 50px;
+            border-radius: 4px;
+            object-fit: cover;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+            background: #1e293b;
+        }
+
+        .thumb-img:hover {
+            border-color: #64748b;
+        }
+
+        .thumb-img.active {
+            border-color: #10b981;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+        }
+
         .drop-zone {
             border: 2px dashed var(--border);
             border-radius: 16px;
@@ -885,17 +905,25 @@
                         item.className = 'prompt-list-item';
                         item.innerHTML = `
                             <div class="prompt-number">${idx + 1}</div>
-                            <div class="prompt-text" id="ptext-${idx}">${p}</div>
+                            <div class="prompt-text" style="display: flex; flex-direction: column;">
+                                <div id="ptext-${idx}">${p}</div>
+                                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                    <img src="/api/image/${promptNum}a.png" class="thumb-img ${approvedSet.has(promptNum + 'a.png') ? 'active' : ''}" data-letter="a" onclick="approveImage(${idx}, 'a', this)" onerror="this.style.display='none'">
+                                    <img src="/api/image/${promptNum}b.png" class="thumb-img ${approvedSet.has(promptNum + 'b.png') ? 'active' : ''}" data-letter="b" onclick="approveImage(${idx}, 'b', this)" onerror="this.style.display='none'">
+                                    <img src="/api/image/${promptNum}c.png" class="thumb-img ${approvedSet.has(promptNum + 'c.png') ? 'active' : ''}" data-letter="c" onclick="approveImage(${idx}, 'c', this)" onerror="this.style.display='none'">
+                                    <img src="/api/image/${promptNum}d.png" class="thumb-img ${approvedSet.has(promptNum + 'd.png') ? 'active' : ''}" data-letter="d" onclick="approveImage(${idx}, 'd', this)" onerror="this.style.display='none'">
+                                </div>
+                            </div>
                             <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
                                 <div style="display: flex; gap: 0.5rem;">
                                     <button class="copy-btn-small" onclick="copyPrompt(${idx}, this)">Copiar</button>
                                     <button class="copy-btn-small btn-gerar" onclick="generatePrompt(${idx}, this)">Gerar</button>
                                 </div>
                                 <div class="selection-grid">
-                                    <button class="btn-select ${approvedSet.has(promptNum + 'a.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'a', this)">A</button>
-                                    <button class="btn-select ${approvedSet.has(promptNum + 'b.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'b', this)">B</button>
-                                    <button class="btn-select ${approvedSet.has(promptNum + 'c.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'c', this)">C</button>
-                                    <button class="btn-select ${approvedSet.has(promptNum + 'd.png') ? 'active' : ''}" onclick="approveImage(${idx}, 'd', this)">D</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'a.png') ? 'active' : ''}" data-letter="a" onclick="approveImage(${idx}, 'a', this)">A</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'b.png') ? 'active' : ''}" data-letter="b" onclick="approveImage(${idx}, 'b', this)">B</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'c.png') ? 'active' : ''}" data-letter="c" onclick="approveImage(${idx}, 'c', this)">C</button>
+                                    <button class="btn-select ${approvedSet.has(promptNum + 'd.png') ? 'active' : ''}" data-letter="d" onclick="approveImage(${idx}, 'd', this)">D</button>
                                 </div>
                             </div>
                         `;
@@ -920,9 +948,12 @@
 
                 if (response.ok) {
                     // Update UI active state
-                    const parent = btn.parentElement;
-                    parent.querySelectorAll('.btn-select').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
+                    const card = btn.closest('.prompt-list-item');
+                    if (card) {
+                        card.querySelectorAll('.btn-select').forEach(b => b.classList.remove('active'));
+                        card.querySelectorAll('.thumb-img').forEach(b => b.classList.remove('active'));
+                        card.querySelectorAll(`[data-letter="${letter}"]`).forEach(b => b.classList.add('active'));
+                    }
                     addLog(`Prompt ${idx + 1} imagem ${letter.toUpperCase()} aprovada.`);
                 } else {
                     const data = await response.json();
