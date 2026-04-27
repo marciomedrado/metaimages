@@ -569,6 +569,19 @@
             </div>
         </div>
 
+        <!-- Modal para ver prompts -->
+        <div id="promptsModal" class="modal">
+            <div class="modal-content">
+                <span class="close-modal">&times;</span>
+                <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📋</span> Prompts em Ordem
+                </h2>
+                <div id="modalPromptList">
+                    <!-- Lista de prompts aparecerá aqui -->
+                </div>
+            </div>
+        </div>
+
         <section class="images-container" style="margin-top: 3rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h2 style="font-size: 1.5rem; font-weight: 700;">Galeria de Resultados</h2>
@@ -841,7 +854,7 @@
         // Modal Logic
         const promptsModal = document.getElementById('promptsModal');
         const viewPromptsBtn = document.getElementById('viewPromptsBtn');
-        const closeModal = document.querySelector('.close-modal');
+        const closeModal = document.querySelector('#promptsModal .close-modal');
         const modalPromptList = document.getElementById('modalPromptList');
 
         viewPromptsBtn.onclick = async () => {
