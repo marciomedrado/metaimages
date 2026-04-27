@@ -489,6 +489,11 @@
                     <input type="text" id="outputPath" placeholder="Padrao: pasta /output do projeto">
                 </div>
 
+                <div class="form-group">
+                    <label>Pasta de Aprovados (Caminho completo)</label>
+                    <input type="text" id="approvedPath" placeholder="Padrao: pasta /output/Aprovados">
+                </div>
+
                 <button id="startBtn" class="btn btn-primary">
                     <span id="btnIcon">🚀</span> Iniciar Geração
                 </button>
@@ -632,12 +637,17 @@
             promptArea.value = formattedPrompts.join('\n');
             
             const customOutput = document.getElementById('outputPath').value.trim();
+            const customApproved = document.getElementById('approvedPath').value.trim();
             
             try {
                 const res = await fetch('/api/save-prompts', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompts: formattedPrompts, outputPath: customOutput || null })
+                    body: JSON.stringify({ 
+                        prompts: formattedPrompts, 
+                        outputPath: customOutput || null,
+                        approvedPath: customApproved || null 
+                    })
                 });
 
                 if (res.ok) {
@@ -723,6 +733,7 @@
 
             const prompts = promptArea.value.split('\n').map(p => p.trim()).filter(p => p);
             const customOutput = document.getElementById('outputPath').value.trim();
+            const customApproved = document.getElementById('approvedPath').value.trim();
             const minDelay = document.getElementById('minDelay').value;
             const maxDelay = document.getElementById('maxDelay').value;
 
@@ -745,6 +756,7 @@
                         prompts,
                         mode: browserMode.value,
                         outputPath: customOutput || null,
+                        approvedPath: customApproved || null,
                         minDelay,
                         maxDelay
                     })

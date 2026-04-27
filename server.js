@@ -21,6 +21,7 @@ let currentStatus = {
     finished: false,
     waitingForApproval: false,
     outputPath: path.join(__dirname, 'output'),
+    approvedPath: path.join(__dirname, 'output', 'Aprovados'),
     currentPrompts: []
 };
 
@@ -214,19 +215,25 @@ app.post('/api/start', (req, res) => {
     if (currentStatus.isRunning && !currentStatus.finished) {
         return res.status(400).json({ error: 'Ja existe um processo rodando.' });
     }
-    const { prompts, mode, outputPath, minDelay, maxDelay } = req.body;
+    const { prompts, mode, outputPath, approvedPath, minDelay, maxDelay } = req.body;
+    if (approvedPath) currentStatus.approvedPath = approvedPath;
     runAutomation(prompts, mode, outputPath, minDelay, maxDelay);
     res.json({ message: 'Processo iniciado.' });
 });
 
 app.post('/api/save-prompts', (req, res) => {
-    const { prompts, outputPath } = req.body;
+    const { prompts, outputPath, approvedPath } = req.body;
     currentPromptsList = prompts;
     currentStatus.currentPrompts = prompts;
     if (outputPath) {
         currentStatus.outputPath = outputPath;
     } else {
         currentStatus.outputPath = path.join(__dirname, 'output');
+    }
+    if (approvedPath) {
+        currentStatus.approvedPath = approvedPath;
+    } else if (outputPath) {
+        currentStatus.approvedPath = path.join(outputPath, 'Aprovados');
     }
     res.json({ success: true });
 });
@@ -350,7 +357,7 @@ app.post('/api/approve-image', (req, res) => {
     const promptNum = pad(index + 1);
 
     const outputDir = currentStatus.outputPath;
-    const aprovadosDir = path.join(outputDir, 'Aprovados');
+    const aprovadosDir = currentStatus.approvedPath;
 
     if (!fs.existsSync(aprovadosDir)) {
         fs.mkdirSync(aprovadosDir, { recursive: true });
@@ -376,7 +383,7 @@ app.post('/api/approve-image', (req, res) => {
     const destPath = path.join(aprovadosDir, srcFileName);
     fs.copyFileSync(srcPath, destPath);
 
-    addLog(`Imagem ${srcFileName} aprovada e salva em /Aprovados`);
+    addLog(`Imagem ${srcFileName} aprovada e salva em: ${aprovadosDir}`);
     res.json({ success: true, approvedFile: srcFileName });
 });
 
